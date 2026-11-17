@@ -504,7 +504,6 @@ async function updateCommandInternal(
         : { updateInstallKind: "git" as const }),
       callerLegacyConfigPlan: initialization?.callerLegacyConfigPlan,
       installKind,
-      gitRelease,
       timeoutMs,
       updateStepTimeoutMs,
       startedAt,

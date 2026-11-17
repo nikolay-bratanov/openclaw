@@ -240,8 +240,19 @@ export async function maybeRestartService(
       (activation.refreshServiceEnv ||
         activation.serviceInstallEnv === null ||
         activation.requireRunningServiceAfterRestart));
-  const serviceUsesUpdatedRoot = () =>
-    gatewayServiceCommandUsesRoot({ root: activation.result.root, env: activation.serviceEnv });
+  // The definition alone answers this. A Windows task's process can still run the previous
+  // command right after its definition moved, which fails the full ownership inspection.
+  const serviceUsesUpdatedRoot = async () =>
+    gatewayServiceCommandUsesRoot({
+      root: activation.result.root,
+      command: (
+        await readGatewayServiceStateForUpdate(
+          resolveGatewayService(),
+          activation.serviceEnv,
+          activation.timeoutMs,
+        )
+      ).command,
+    });
   if (preserveDefinition && !params.definitionRecovery?.backup) {
     defaultRuntime.error(
       "Gateway service definition left unchanged; ask its deployment owner to repair stale metadata if needed.",
