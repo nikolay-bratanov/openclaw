@@ -2334,7 +2334,7 @@ function Refresh-GatewayServiceIfLoaded {
 function Test-PreviousGitWrapper {
     $wrapper = Join-Path (Join-Path $env:USERPROFILE ".local\bin") "openclaw.cmd"
     if (-not (Test-Path -LiteralPath $wrapper -PathType Leaf)) { return $false }
-    return ([System.IO.File]::ReadAllText($wrapper) -match '^@echo off\r?\nnode ".+[\\/]dist[\\/]entry\.js" %\*\r?\n?$')
+    return ([System.IO.File]::ReadAllText($wrapper) -match '^@echo off\r?\nnode ".+[\\/](dist[\\/]entry\.js|openclaw-launcher\.mjs)" %\*\r?\n?$')
 }
 
 function Remove-PreviousGitWrapper {

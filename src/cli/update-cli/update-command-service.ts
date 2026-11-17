@@ -443,6 +443,17 @@ export async function maybeRestartService(
     if (!activation.opts.json) {
       defaultRuntime.log(theme.muted("Gateway: updater restart skipped (--no-restart)."));
     }
+    // A first Git release update leaves a service that still starts the checkout alone: its
+    // definition moves to the release launcher only with a restart, so the next update owes it.
+    if (
+      activation.result.mode === "git" &&
+      readPackageReleaseSlotSync(activation.result.root ?? "") &&
+      (await serviceUsesUpdatedRoot()) === false
+    ) {
+      const warning = `Gateway service still starts the checkout, so its next start runs the previous build. Run \`${formatCliCommand("openclaw gateway install --force", activation.serviceEnv)}\` to start it from the release link.`;
+      recordServiceReconciliationWarning(activation.result, activation.serviceEnv, warning);
+      recordOwedUpdateStep(run, { id: "service-definition", reason: warning });
+    }
     if (isPackageUpdate && activation.observePackageReplacement) {
       try {
         await verifyUpdatedGateway({

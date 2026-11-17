@@ -5,7 +5,10 @@ import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { readRegularFile } from "../../infra/fs-safe.js";
-import { resolveGitReleasePrefix } from "../../infra/git-release-paths.js";
+import {
+  resolveGitReleaseLauncherForEntrypoint,
+  resolveGitReleasePrefix,
+} from "../../infra/git-release-paths.js";
 import { hasNodeErrorCode } from "../../infra/path-guards.js";
 import { assessInitialUpdateSnapshotCapacity } from "../../infra/update-candidate-snapshot.js";
 import { DEV_BRANCH, type UpdateChannel } from "../../infra/update-channels.js";
@@ -64,10 +67,12 @@ export async function retireStandaloneGitWrapper(params: {
   const platform = params.platform ?? process.platform;
   const wrapperName = platform === "win32" ? "openclaw.cmd" : "openclaw";
   const searchDirs = params.searchDirs ?? (process.env.PATH ?? "").split(path.delimiter);
-  const expectedEntry =
-    platform === "win32"
-      ? path.win32.join(params.previousRoot, "dist", "entry.js")
-      : path.join(params.previousRoot, "dist", "entry.js");
+  const pathApi = platform === "win32" ? path.win32 : path;
+  // A wrapper already pointed at a Git release starts its launcher.
+  const expectedEntries = [
+    pathApi.join(params.previousRoot, "dist", "entry.js"),
+    resolveGitReleaseLauncherForEntrypoint(pathApi.join(params.previousRoot, "dist", "index.js")),
+  ];
   const seen = new Set<string>();
 
   for (const directory of searchDirs) {
@@ -109,7 +114,7 @@ export async function retireStandaloneGitWrapper(params: {
       platform === "win32" &&
       lines.length === 2 &&
       lines[0] === "@echo off" &&
-      lines[1] === `node "${expectedEntry}" %*`;
+      expectedEntries.some((entry) => lines[1] === `node "${entry}" %*`);
     const execArgs =
       platform === "win32" || lines.length !== 3 ? null : splitShellArgs(lines[2] ?? "");
     const matchesPosix =
@@ -118,7 +123,7 @@ export async function retireStandaloneGitWrapper(params: {
       lines[1] === "set -euo pipefail" &&
       execArgs?.length === 4 &&
       execArgs[0] === "exec" &&
-      execArgs[2] === expectedEntry &&
+      expectedEntries.includes(execArgs[2]!) &&
       execArgs[3] === "$@";
     if (!matchesWindows && !matchesPosix) {
       continue;
@@ -145,11 +150,13 @@ export async function retireStandaloneGitWrapper(params: {
     params.assertCurrent?.();
     try {
       if (params.replacementRoot) {
-        const entry = (platform === "win32" ? path.win32 : path).join(
-          params.replacementRoot,
-          "dist",
-          "entry.js",
+        // The release launcher applies a pending release and counts Gateway trial starts.
+        const entry = resolveGitReleaseLauncherForEntrypoint(
+          pathApi.join(params.replacementRoot, "dist", "index.js"),
         );
+        if (!entry) {
+          throw new Error(`${params.replacementRoot} is not a Git release link`);
+        }
         // The installer's formats, so its own wrapper checks still recognize the result.
         const next =
           platform === "win32"

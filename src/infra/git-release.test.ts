@@ -42,7 +42,8 @@ async function setup() {
 const startGateway = (prefix: string, env: NodeJS.ProcessEnv = {}) =>
   spawnSync(process.execPath, [path.join(prefix, "openclaw-launcher.mjs"), "gateway"], {
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    // Service units carry the Gateway marker, which selects the service entry.
+    env: { ...process.env, OPENCLAW_SERVICE_MARKER: "openclaw", ...env },
   });
 
 // The launcher and the service units it names run under Node; Bun runs neither.
@@ -288,6 +289,30 @@ describe.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
       await expect(fs.access(path.join(prefix, "releases", GIT_RELEASE_TRIAL))).rejects.toThrow();
       startGateway(prefix);
       expect(startGateway(prefix).stdout).toContain("next");
+    });
+
+    it("applies a pending release to a foreground Gateway started by the CLI wrapper", async () => {
+      const { prefix } = await setup();
+      const cli = async (version: string, label: string) => {
+        const root = await release(prefix, version, "");
+        await fs.writeFile(path.join(root, "dist", "entry.js"), `console.log("${label}");\n`);
+        return root;
+      };
+      await publishGitRelease({ prefix, releaseRoot: await cli("1.0.0", "current"), trial: false });
+      await publishGitRelease({
+        prefix,
+        releaseRoot: await cli("2.0.0", "next"),
+        trial: true,
+        pending: true,
+      });
+      const wrapper = (...args: string[]) =>
+        spawnSync(process.execPath, [path.join(prefix, "openclaw-launcher.mjs"), ...args], {
+          encoding: "utf8",
+        }).stdout;
+
+      // A status query starts no Gateway, so it neither selects nor counts the release.
+      expect(wrapper("gateway", "status")).toBe("current\n");
+      expect(wrapper("gateway", "run")).toBe("next\n");
     });
 
     it("keeps the applied plan and the trial when removing an addition fails", async () => {
