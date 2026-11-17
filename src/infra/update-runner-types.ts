@@ -43,7 +43,6 @@ type GitUpdateTarget = {
 };
 
 export type UpdateRunnerOptions = {
-  sourceRuntimePrepared?: boolean;
   channel?: UpdateChannel;
   devTarget?: DevUpdateTarget;
   /** Read-only admission before executing a fetched candidate; never stops a service. */

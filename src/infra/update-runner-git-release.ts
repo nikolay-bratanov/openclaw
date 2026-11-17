@@ -154,7 +154,6 @@ export async function updateGitRelease(params: {
       refreshedRemotes: fetched.refreshedRemotes,
       devSource: fetched.devSource,
       beforeSha,
-      sourceRuntimePrepared: opts.sourceRuntimePrepared,
       needsCheckoutMain: false,
       runCommand,
       timeoutMs,
