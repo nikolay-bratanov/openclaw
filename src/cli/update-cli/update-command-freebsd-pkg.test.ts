@@ -144,7 +144,7 @@ describe("FreeBSD pkg update admission", () => {
         pkgQueryResult(claimed ? `${root}/package.json\n` : ""),
       );
       const publish = vi.fn();
-      vi.spyOn(updateRunner, "updateGitCheckout").mockImplementation(async ({ opts }) => {
+      vi.spyOn(updateRunner, "updateGitRelease").mockImplementation(async ({ opts }) => {
         await opts.beforeGitMutation({});
         publish();
         return { status: "ok", mode: "git", root, steps: [], durationMs: 0 };

@@ -296,12 +296,7 @@ export async function continueMigratedUpdateInFreshProcess(
     const handoff = createUpdateTimeoutHandoff(params.opts.timeout, params.updateStepTimeoutMs);
     assertCurrent();
     const resultPath = path.join(scratchDir, "result.json");
-    const {
-      requesterAuthority,
-      executorFence,
-      deadline: _deadline,
-      ...runIdentity
-    } = run;
+    const { requesterAuthority, executorFence, deadline: _deadline, ...runIdentity } = run;
     const { onResult: _onResult, ...serializableOptions } = params.opts;
     const input: MigratedUpdateFinalizationInput = {
       ...handoff,

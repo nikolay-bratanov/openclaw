@@ -16,7 +16,6 @@ import { createCommandResult } from "../test-utils/npm-spec-install-test-helpers
 import { VERSION } from "../version.js";
 import { writeFixtureJsonSync } from "./cli-fixtures.test-support.js";
 import * as assert from "./update-cli-assertions.test-support.js";
-import { retainFixtureGitRuntime } from "./update-cli-invocation.test-support.js";
 import { registerUpdateCliLifecycle } from "./update-cli-lifecycle.test-support.js";
 import * as mocks from "./update-cli-mocks.test-support.js";
 import * as update from "./update-cli-modules.test-support.js";
@@ -166,7 +165,7 @@ export function createUpdateCliFixture(fixtureOptions: { databaseEngines?: strin
     mocks.readPackageVersion.mockImplementation(async (packageRoot: string) =>
       packageRoots.includes(packageRoot) ? targetVersion : readPreviousPackageVersion(packageRoot),
     );
-    vi.mocked(update.updateGitCheckout).mockImplementation(async ({ opts: options, gitRoot }) => {
+    vi.mocked(update.updateGitRelease).mockImplementation(async ({ opts: options }) => {
       // Admit the original owner even without activation, as the Git runner does.
       await options.inspectGitTarget({ version: targetVersion, ...targetDeclaration });
       // Baseline-capture cases separately exercise the actual mutation callback.
@@ -175,10 +174,6 @@ export function createUpdateCliFixture(fixtureOptions: { databaseEngines?: strin
           options.beforeGitMutation,
           "Git mutation admission",
         )(targetDeclaration);
-      }
-      // Explicit inspection-only failures have no published runtime to retain.
-      if (params?.admitMutation !== false && options.onTransaction) {
-        await retainFixtureGitRuntime(gitRoot, options.onTransaction);
       }
       return params?.gatewayUpdateImpl
         ? params.gatewayUpdateImpl(root)
@@ -437,7 +432,7 @@ export function createUpdateCliFixture(fixtureOptions: { databaseEngines?: strin
       setTty(false);
       mocks.readPackageVersion.mockResolvedValue("2.0.0");
       primeNpmChannelTag(isBetaTag(VERSION) ? "beta" : "latest", "0.0.1");
-      vi.mocked(update.updateGitCheckout).mockResolvedValue(
+      vi.mocked(update.updateGitRelease).mockResolvedValue(
         update.makeOkUpdateResult({ mode: "npm" }),
       );
       vi.mocked(update.defaultRuntime.error).mockClear();

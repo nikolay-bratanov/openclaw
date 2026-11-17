@@ -174,7 +174,7 @@ it.each(["owned", "unresolved"] as const)(
 
     if (ownership === "unresolved") {
       expect(checks.getLogOutput()).toContain("Stop the Gateway through its owner");
-      expect(cli.updateGitCheckout).toHaveBeenCalledOnce();
+      expect(cli.updateGitRelease).toHaveBeenCalledOnce();
       checks.expectNoSideEffects(
         mocks.serviceStop,
         mocks.serviceStart,
@@ -187,7 +187,7 @@ it.each(["owned", "unresolved"] as const)(
     }
     expect(checks.getErrorOutput()).toContain("service definition left unchanged");
     expect(mocks.serviceStop).toHaveBeenCalledTimes(1);
-    expect(cli.updateGitCheckout).toHaveBeenCalledTimes(1);
+    expect(cli.updateGitRelease).toHaveBeenCalledTimes(1);
     const restartOptions = checks.freshRestartCalls()[0]?.[1];
     expect(typeof restartOptions === "object" && restartOptions.env?.OPENCLAW_WRAPPER).toBe(
       wrapperPath,
@@ -346,14 +346,14 @@ it.each(["owned", "foreign"])(
     expect
       .soft(mocks.serviceStop, checks.getErrorOutput() + checks.getLogOutput())
       .toHaveBeenCalledTimes(owned ? 1 : 0);
-    expect.soft(cli.updateGitCheckout).toHaveBeenCalledTimes(1);
+    expect.soft(cli.updateGitRelease).toHaveBeenCalledTimes(1);
     expect.soft(mutationAdmitted).toHaveBeenCalledOnce();
     expect(checks.freshRestartCalls()).toHaveLength(owned ? 1 : 0);
     expect(
       cli.defaultRuntime.exit,
       checks.getErrorOutput() + checks.getLogOutput(),
     ).not.toHaveBeenCalledWith(1);
-    const updateCall = vi.mocked(cli.updateGitCheckout).mock.calls[0]?.[0];
+    const updateCall = vi.mocked(cli.updateGitRelease).mock.calls[0]?.[0];
     expect(updateCall?.gitRoot).toBe(canonicalGitRoot);
     expect(updateCall?.opts.beforeGitMutation).toEqual(expect.any(Function));
   },
@@ -375,7 +375,7 @@ it.runIf(process.platform !== "win32")(
     f.mockFileBackedPathExists();
     f.mockNoopPostUpdatePluginConvergence();
     const sha = "a".repeat(40);
-    vi.mocked(cli.updateGitCheckout).mockImplementationOnce(
+    vi.mocked(cli.updateGitRelease).mockImplementationOnce(
       async ({ gitRoot: stagingRoot, opts: options }) => {
         expect(options.gitArtifactStorageRoot).toBe(path.dirname(stagingRoot));
         await options.inspectGitTarget({});
@@ -403,7 +403,7 @@ it.runIf(process.platform !== "win32")(
       },
       () =>
         checks.requireValue(
-          vi.mocked(cli.updateGitCheckout).mock.calls[0]?.[0]?.gitRoot,
+          vi.mocked(cli.updateGitRelease).mock.calls[0]?.[0]?.gitRoot,
           "candidate checkout",
         ),
     );
@@ -414,7 +414,7 @@ it.runIf(process.platform !== "win32")(
 
     const installCall = checks.packageInstallCommandCall();
     const candidateRoot = checks.requireValue(
-      vi.mocked(cli.updateGitCheckout).mock.calls[0]?.[0]?.gitRoot,
+      vi.mocked(cli.updateGitRelease).mock.calls[0]?.[0]?.gitRoot,
       "candidate checkout",
     );
     expect(installCall?.[0]).toContain(candidateRoot);
@@ -499,7 +499,7 @@ it("recovers only an untouched package service after source publication fails", 
     const pkg: { version: string } = JSON.parse(await readText(manifest(packageRoot)));
     return pkg.version;
   });
-  vi.mocked(cli.updateGitCheckout).mockImplementationOnce(async ({ opts: options }) => {
+  vi.mocked(cli.updateGitRelease).mockImplementationOnce(async ({ opts: options }) => {
     await options.prepareGitExposure?.(gitRoot, sha, undefined);
     expect(mocks.serviceStop).not.toHaveBeenCalled();
     expect(await fs.realpath(pkgRoot)).toBe(pkgRoot);

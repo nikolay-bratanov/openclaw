@@ -46,7 +46,7 @@ import {
   runCommandWithTimeout,
   runUpdateFailureTriage,
   updateCommand,
-  updateGitCheckout,
+  updateGitRelease,
   updateStatusCommand,
   listUpdateRuns,
   runDaemonInstall,
@@ -149,7 +149,7 @@ describe("update-cli", () => {
         ]),
       });
       expect(defaultRuntime.exit).not.toHaveBeenCalled();
-      expectNoSideEffects(serviceStop, updateGitCheckout);
+      expectNoSideEffects(serviceStop, updateGitRelease);
       expect(packageInstallCommandCall()?.[0]).toBeUndefined();
     },
   );
@@ -242,7 +242,7 @@ describe("update-cli", () => {
       if (git) {
         vi.mocked(resolveOpenClawPackageRoot).mockResolvedValue(root);
         vi.mocked(runCommandWithTimeout).mockResolvedValue(commandResult({ stdout: sha }));
-        vi.mocked(updateGitCheckout).mockImplementationOnce(async ({ opts: updateOptions }) => {
+        vi.mocked(updateGitRelease).mockImplementationOnce(async ({ opts: updateOptions }) => {
           await updateOptions.inspectGitTarget({});
           await requireValue(updateOptions.beforeGitMutation, "Git mutation admission")({});
           return makeOkUpdateResult();
@@ -293,7 +293,7 @@ describe("update-cli", () => {
       expect(phases.mock.calls.length).toBeGreaterThan(1);
       expectNoSideEffects(serviceStop, serviceRestart);
       expect(freshRestartCalls()).toHaveLength(0);
-      expect(updateGitCheckout).toHaveBeenCalledTimes(git ? 1 : 0);
+      expect(updateGitRelease).toHaveBeenCalledTimes(git ? 1 : 0);
       expect(packageInstallCommandCall()).toBeUndefined();
       expect(defaultRuntime.exit).not.toHaveBeenCalledWith(1);
       expect(lastWriteJsonCall()).toMatchObject({

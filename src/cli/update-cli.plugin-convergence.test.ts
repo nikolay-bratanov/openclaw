@@ -113,7 +113,7 @@ describe("update-cli", () => {
 
     expect(JSON.parse(await fs.readFile(resultPath, "utf-8"))).toMatchObject({ status: "ok" });
     expect(update.defaultRuntime.exit).toHaveBeenCalledWith(0);
-    assert.expectNoSideEffects(update.updateGitCheckout, mocks.spawn);
+    assert.expectNoSideEffects(update.updateGitRelease, mocks.spawn);
     const runsAfter = update.listUpdateRuns();
     expect(runsAfter).toHaveLength(runsBefore.length);
     const { steps: priorSteps, updatedAtMs: _priorUpdate, ...priorOwnership } = runsBefore[0]!;
@@ -138,7 +138,7 @@ describe("update-cli", () => {
       },
     );
 
-    expect(update.updateGitCheckout).not.toHaveBeenCalled();
+    expect(update.updateGitRelease).not.toHaveBeenCalled();
     expect(update.replaceConfigFile).toHaveBeenCalledWith({
       nextConfig: { update: { channel: "dev" } },
       baseHash: "stable-hash",

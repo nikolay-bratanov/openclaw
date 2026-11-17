@@ -478,7 +478,7 @@ describe("update-cli", () => {
           : `updater interrupted after mutation: ${"replacement verification detail; ".repeat(12)}`,
         { cause },
       );
-      vi.mocked(update.updateGitCheckout).mockImplementationOnce(async ({ opts }) => {
+      vi.mocked(update.updateGitRelease).mockImplementationOnce(async ({ opts }) => {
         const target = { version: VERSION, databaseEngines: ["sqlite", "postgres"] };
         await assert.requireValue(opts.beforeGitMutation, "Git mutation admission")(target);
         mocks.restartHealthTestControl.snapshot = {

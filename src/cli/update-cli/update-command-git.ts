@@ -31,9 +31,9 @@ import {
   buildUpdateCommandRunner,
   reportUpdateStepCompletion,
 } from "../../infra/update-runner-command.js";
+import { updateGitRelease } from "../../infra/update-runner-git-release.js";
 import { readGitTargetSchemaVersions } from "../../infra/update-runner-git-schema.js";
 import { readBranchName, selectChannelTag } from "../../infra/update-runner-git-target.js";
-import { updateGitRelease } from "../../infra/update-runner-git-release.js";
 import type {
   CommandRunner as UpdateRunnerCommandRunner,
   UpdateRunnerOptions,
@@ -45,11 +45,7 @@ import { runCommandWithTimeout } from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { splitShellArgs } from "../../utils/shell-argv.js";
-import {
-  ensureGitCheckout,
-  resolveGitInstallDir,
-  resolveGlobalManager,
-} from "./shared.js";
+import { ensureGitCheckout, resolveGitInstallDir, resolveGlobalManager } from "./shared.js";
 import { readPackageUpdateIdentity } from "./update-command-package-identity.js";
 import { readOriginalUpdateRecovery } from "./update-command-recovery.js";
 import { assessSnapshotCapacityOfferingCleanup } from "./update-snapshot-space-cleanup.js";

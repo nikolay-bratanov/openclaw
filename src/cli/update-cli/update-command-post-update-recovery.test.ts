@@ -127,7 +127,6 @@ vi.mock("./update-command-result.js", async (importOriginal) => ({
 }));
 
 import { UpdatePreMutationError } from "./shared.js";
-import { registerDoctorRestorationRollbackTests } from "./update-command-doctor-rollback.test-support.js";
 import {
   finishParams,
   updateResult,
@@ -588,8 +587,6 @@ describe("failed update recovery restart", () => {
 
 describe("failed package update recovery safety", () => {
   beforeEach(resetRuntimeMocks);
-
-  registerDoctorRestorationRollbackTests(mocks, (prefix) => tempDirs.make(prefix));
 
   it("retains recovery backup when publication and compensation fail", async () => {
     const base = tempDirs.make("update-older-target-backup-");

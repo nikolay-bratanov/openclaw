@@ -56,7 +56,7 @@ import {
   runUpdateFailureTriage,
   updateCommand,
   updateFinalizeCommand,
-  updateGitCheckout,
+  updateGitRelease,
 } from "./update-cli-modules.test-support.js";
 import { registerFailureSelectorTests } from "./update-cli/update-cli-failure-recovery.test-support.js";
 import {
@@ -129,7 +129,7 @@ describe("update-cli", () => {
   registerFailureSelectorTests({
     updateCommand,
     updateFinalizeCommand,
-    updateGitCheckout,
+    updateGitRelease,
     readConfigFileSnapshot,
     profileStateDir: fixture.profileStateDir,
     runUpdateFailureTriage,
@@ -692,7 +692,7 @@ describe("update-cli", () => {
       if (phase === "Git task suspension") {
         fixture.mockOwnedGitService();
         serviceLoaded.mockResolvedValue(true);
-        vi.mocked(updateGitCheckout).mockImplementationOnce(async ({ opts: options }) => {
+        vi.mocked(updateGitRelease).mockImplementationOnce(async ({ opts: options }) => {
           await requireValue(
             options.beforeGitMutation,
             "Git mutation admission",
@@ -896,7 +896,7 @@ describe("update-cli", () => {
       ]);
       suspendScheduledTaskAutoStartForUpdate.mockResolvedValue(true);
       const failure = new Error("post-core configuration could not be read");
-      vi.mocked(updateGitCheckout).mockImplementationOnce(async ({ opts }) => {
+      vi.mocked(updateGitRelease).mockImplementationOnce(async ({ opts }) => {
         await requireValue(opts.beforeGitMutation, "Git mutation admission")({});
         if (failureKind === "post-core exception") {
           vi.mocked(readConfigFileSnapshot).mockRejectedValue(failure);

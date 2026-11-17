@@ -73,7 +73,7 @@ it.each(
           }),
         };
       });
-    vi.spyOn(gitRunner, "updateGitCheckout").mockImplementation(async ({ opts }) => {
+    vi.spyOn(gitRunner, "updateGitRelease").mockImplementation(async ({ opts }) => {
       const steps: UpdateStepResult[] = [];
       if (switchToGit) {
         assert(opts.prepareGitExposure);

@@ -35,7 +35,7 @@ const {
   defaultRuntime: runtime,
   runCommandWithTimeout: runCommand,
   updateCommand: runUpdate,
-  updateGitCheckout: gitUpdate,
+  updateGitRelease: gitUpdate,
 } = cli;
 const { packageInstallCommandCall: packageInstall, freshRestartCalls: restarts } = check;
 

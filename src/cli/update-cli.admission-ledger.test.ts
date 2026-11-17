@@ -30,7 +30,7 @@ describe("update-cli", () => {
   function expectNoMutation(...effects: unknown[]) {
     expectNoSideEffects(
       update.replaceConfigFile,
-      update.updateGitCheckout,
+      update.updateGitRelease,
       mocks.syncPluginsForUpdateChannel,
       ...effects,
     );
@@ -235,7 +235,7 @@ describe("update-cli", () => {
           // The real onActivation callback has run, but schema inspection has not
           // yet authorized this process to reopen the candidate's ledger.
           const progress = expectDefined(
-            vi.mocked(update.updateGitCheckout).mock.calls[0]?.[0]?.opts.progress,
+            vi.mocked(update.updateGitRelease).mock.calls[0]?.[0]?.opts.progress,
             "update progress",
           );
           const readsBefore = ledgerReads.mock.calls.length;

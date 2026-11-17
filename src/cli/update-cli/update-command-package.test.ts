@@ -817,7 +817,7 @@ it.each([
         checkoutDir: gitRoot,
         step: null,
       });
-      vi.spyOn(gitRunner, "updateGitCheckout").mockImplementation(async ({ opts }) => {
+      vi.spyOn(gitRunner, "updateGitRelease").mockImplementation(async ({ opts }) => {
         assert(opts.prepareGitExposure);
         await opts.prepareGitExposure(gitRoot, "a".repeat(40), env);
         return resultFixture(gitRoot, { mode: "git" });

@@ -5,6 +5,7 @@ import {
 } from "../../daemon/service-inspection-error.js";
 import { GatewayServiceAuthorityError } from "../../daemon/service-update-authority.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { readPackageReleaseSlotSync } from "../../infra/package-release-slot-path.js";
 import { adoptCandidateManagedServiceStop } from "../../infra/update-candidate-predecessor-stop.js";
 import { unsafeUpdateRecovery } from "../../infra/update-recovery.js";
 import { recordUpdateRunStep } from "../../infra/update-run-ledger.js";
@@ -12,7 +13,6 @@ import type { UpdateRunResult } from "../../infra/update-runner-types.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { defaultRuntime } from "../../runtime.js";
 import type { FinishUpdateParams } from "./update-command-finish-types.js";
-import { readPackageReleaseSlotSync } from "../../infra/package-release-slot-path.js";
 import { retireStandaloneGitWrapper } from "./update-command-git.js";
 import {
   recordOwedUpdateStep,

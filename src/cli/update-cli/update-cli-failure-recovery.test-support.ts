@@ -123,7 +123,7 @@ export function registerForegroundFailureRecoveryTests(deps: {
 export function registerFailureSelectorTests(deps: {
   updateCommand: typeof UpdateCommand;
   updateFinalizeCommand: typeof UpdateFinalizeCommand;
-  updateGitCheckout: typeof import("../../infra/update-runner-git-release.js").updateGitCheckout;
+  updateGitRelease: typeof import("../../infra/update-runner-git-release.js").updateGitRelease;
   readConfigFileSnapshot: typeof ReadConfigFileSnapshot;
   profileStateDir: () => string;
   runUpdateFailureTriage: typeof RunUpdateFailureTriage;
@@ -138,7 +138,7 @@ export function registerFailureSelectorTests(deps: {
       const failure = new Error(name === "update" ? "Git update failed" : "Config snapshot failed");
       if (name === "update") {
         // Target selection reads config before an admitted update installs failure triage.
-        vi.mocked(deps.updateGitCheckout).mockRejectedValueOnce(failure);
+        vi.mocked(deps.updateGitRelease).mockRejectedValueOnce(failure);
       } else {
         vi.mocked(deps.readConfigFileSnapshot).mockRejectedValueOnce(failure);
       }

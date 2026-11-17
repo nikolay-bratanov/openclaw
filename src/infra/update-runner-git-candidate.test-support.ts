@@ -4,29 +4,14 @@ import path from "node:path";
 import { afterAll, expect, vi } from "vitest";
 import { copyTreeCloseOnExec } from "../../test/helpers/close-on-exec-copy.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import { resolveNodeRuntimeInfo } from "../daemon/runtime-paths.js";
-import { hasCommandProcessCleanupError } from "../process/exec-result.js";
 import * as processExec from "../process/exec.js";
 import { getOrCreatePromise } from "../shared/lazy-promise.js";
-import { resolveTestNodeExecPath } from "../test-utils/node-process.js";
-import { createCommandResult } from "../test-utils/npm-spec-install-test-helpers.js";
-import { pathExists } from "../utils.js";
-import { listDirectoryTreeStrict } from "./directory-walk.js";
-import { collectNestedErrorCandidates } from "./error-graph-internal.js";
 import { writeFixtureTree } from "./fixture-tree.test-support.js";
-import { UpdateRequesterRevokedError } from "./update-requester-authority.js";
-import { buildUpdateCommandRunner } from "./update-runner-command.js";
 import { updateGitRelease } from "./update-runner-git-release.js";
-import type {
-  CommandRunner,
-  UpdateRunResult,
-  UpdateRunnerOptions,
-  UpdateStepProgress,
-} from "./update-runner-types.js";
+import type { CommandRunner, UpdateRunResult, UpdateRunnerOptions } from "./update-runner-types.js";
 import type { UpdateStepResult } from "./update-step-result.js";
 
 const { runCommandWithTimeout } = processExec;
-
 
 export type GitUpdateFixture = Awaited<ReturnType<typeof createGitFixtureCheckout>> & {
   directory: string;
@@ -60,8 +45,8 @@ export async function createGitUpdateFixture(
       return runCommandWithTimeout(argv, options);
     }
     if (argv[0] === process.execPath && argv.at(-1) === "--version") {
-      const manifest = JSON.parse(await readText(path.join(options.cwd!, "package.json")));
-      return { code: 0, stdout: `OpenClaw ${manifest.version}\n`, stderr: "" };
+      const pkg = JSON.parse(await readText(path.join(options.cwd!, "package.json")));
+      return { code: 0, stdout: `OpenClaw ${pkg.version}\n`, stderr: "" };
     }
     if (argv[0] !== "pnpm") {
       throw new Error(`Unexpected command: ${argv.join(" ")}`);

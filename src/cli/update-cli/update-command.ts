@@ -14,10 +14,7 @@ import { withDeferredDebugProxyCapture } from "../../proxy-capture/runtime-defer
 import { defaultRuntime } from "../../runtime.js";
 import { VERSION } from "../../version.js";
 import type { createUpdateProgress } from "./progress.js";
-import {
-  confirmUpdateDowngrade,
-  type UpdateCommandOptions,
-} from "./shared.js";
+import { confirmUpdateDowngrade, type UpdateCommandOptions } from "./shared.js";
 import {
   reportPreMutationUpdateResult,
   withUpdateAdmissionReporting,

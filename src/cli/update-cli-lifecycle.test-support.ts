@@ -352,7 +352,7 @@ export function registerUpdateCliLifecycle(fixture: UpdateCliLifecycleFixture): 
     mocks.launchdUpdateCleanupMocks.disableCurrentOpenClawUpdateLaunchdJob.mockResolvedValue(false);
     mocks.confirm.mockResolvedValue(false);
     mocks.select.mockResolvedValue("stable");
-    vi.mocked(update.updateGitCheckout).mockImplementation(
+    vi.mocked(update.updateGitRelease).mockImplementation(
       createGitUpdateAfterMutationFixture().run,
     );
     fixture.setTty(false);

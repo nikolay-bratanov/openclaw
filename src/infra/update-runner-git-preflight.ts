@@ -450,8 +450,7 @@ export async function runGitCandidatePreflight(params: {
 
   // Reference builds must consume operator inputs even when their Git HEAD is current.
   // Source identity alone cannot prove the installed build is complete.
-  const canSkipActivation =
-    !params.referenceSource && params.beforeRuntimeVerified;
+  const canSkipActivation = !params.referenceSource && params.beforeRuntimeVerified;
   let rebaseFrom = params.referenceSource
     ? params.referenceSource.branch === DEV_BRANCH
       ? undefined

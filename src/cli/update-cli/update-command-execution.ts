@@ -9,11 +9,7 @@ import type { UpdateStepResult } from "../../infra/update-step-result.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { assertReadableGitMetadata } from "./schema-preflight.js";
-import {
-  normalizeTag,
-  readPackageVersion,
-  UpdatePreMutationError,
-} from "./shared.js";
+import { normalizeTag, readPackageVersion, UpdatePreMutationError } from "./shared.js";
 import {
   admitUpdateCandidateDatabaseMetadata,
   assertUpdateCandidateExecutor,

@@ -37,7 +37,7 @@ describe("update-cli", () => {
       switchToPackage: true,
     });
     expect(packageInstallCommandCall()?.[0]).toBeUndefined();
-    expectNoSideEffects(update.updateGitCheckout, update.replaceConfigFile, mocks.spawn);
+    expectNoSideEffects(update.updateGitRelease, update.replaceConfigFile, mocks.spawn);
   });
 
   it("pins the compatibility host version to the downgraded target during current-process post-core plugin convergence (#87914)", async () => {
@@ -85,7 +85,7 @@ describe("update-cli", () => {
       doctorRetirementOnly: true,
     });
     mocks.readPackageVersion.mockResolvedValue(VERSION);
-    vi.mocked(update.updateGitCheckout).mockResolvedValue(
+    vi.mocked(update.updateGitRelease).mockResolvedValue(
       runtimeRecovery.currentGitCoreFixture(process.cwd(), VERSION).outcome,
     );
     vi.mocked(update.resolveGatewayInstallEntrypoint).mockResolvedValueOnce(
