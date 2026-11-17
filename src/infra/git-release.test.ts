@@ -5,6 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withMockedWindowsPlatform } from "../test-utils/vitest-spies.js";
 import { writeGitReleaseLauncher } from "./git-release-launcher.js";
 import {
   GIT_RELEASE_TRIAL,
@@ -14,6 +15,7 @@ import {
   usesGitReleases,
 } from "./git-release-paths.js";
 import { createGitReleaseDirs, publishGitRelease, settleGitReleaseTrial } from "./git-release.js";
+import { readPackageReleaseSlotSync } from "./package-release-slot-path.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -417,6 +419,28 @@ describe.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
         expect(await gatewayServiceOwnsGitInstall(checkout, false)).toBe(true);
       } finally {
         vi.restoreAllMocks();
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("runs a Windows checkout from releases behind an absolute junction link", async () => {
+      const { stateDir, prefix } = await setup();
+      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+      try {
+        await withMockedWindowsPlatform(async () => {
+          expect(usesGitReleases(false, true)).toBe(true);
+          const good = await release(prefix, "1.0.0", 'console.log("old");\n');
+          await publishGitRelease({ prefix, releaseRoot: good, trial: false });
+          const bad = await release(prefix, "2.0.0", 'throw new Error("boot");\n');
+          await publishGitRelease({ prefix, releaseRoot: bad, trial: true });
+          // A junction stores, and readlink reports, the absolute release path.
+          expect(readPackageReleaseSlotSync(gitReleaseSlot(prefix))?.target).toBe(bad);
+        });
+        startGateway(prefix);
+        startGateway(prefix);
+
+        expect(startGateway(prefix).stdout).toContain("old");
+      } finally {
         vi.unstubAllEnvs();
       }
     });

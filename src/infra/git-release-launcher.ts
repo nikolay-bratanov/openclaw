@@ -33,7 +33,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const prefix = path.dirname(fileURLToPath(import.meta.url));
 const slot = path.join(prefix, "lib", "node_modules", "openclaw");
 const trialFile = path.join(prefix, "releases", "${GIT_RELEASE_TRIAL}");
-const counts = process.argv.slice(2).includes("gateway");
+// The Windows task supervisor only starts the Gateway child, through this launcher (it reads
+// the global below), so the child's starts are the ones counted.
+const counts = process.argv.slice(2).includes("gateway") && !process.argv.includes("--task-supervisor");
+globalThis[Symbol.for("openclaw.gitReleaseLauncher")] = fileURLToPath(import.meta.url);
 
 // Upgraded state keeps each replaced file as "<file>.pre-<generation>". Restore them
 // together: a trial's WAL, journal, SHM or seal must never pair with a restored
