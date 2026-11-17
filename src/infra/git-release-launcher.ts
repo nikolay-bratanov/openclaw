@@ -36,18 +36,23 @@ const trialFile = path.join(prefix, "releases", "${GIT_RELEASE_TRIAL}");
 // Gateway starts count: the service's "gateway --port ..." and a foreground "gateway run" from
 // the CLI wrapper, never "gateway status". The Windows task supervisor only starts the Gateway
 // child, through this launcher (it reads the global below), so the child's starts count.
-// Root options mirror cli-root-options.mjs, which this file cannot import from a release.
+// Root options may sit anywhere in the command path, as in "gateway --profile work status". The
+// value flags mirror cli-root-options.mjs and gateway-run-argv.mjs, which this file cannot import
+// from a release. An unknown value flag leaves an extra positional, so that start is not counted.
+const valueFlags = ["--profile", "--log-level", "--container", "--port", "--bind", "--token",
+  "--token-file", "--auth", "--password", "--password-file", "--tailscale", "--ws-log",
+  "--raw-stream-path", "--task-supervisor-child"];
 const args = process.argv.slice(2);
-let at = 0;
-while (at < args.length && args[at].startsWith("-")) {
-  const [flag, value] = args[at].split("=");
-  at += ["--profile", "--log-level", "--container"].includes(flag) && value === undefined ? 2 : 1;
+const positionals = [];
+for (let i = 0; i < args.length; i += 1) {
+  if (args[i] === "--") break;
+  if (!args[i].startsWith("-")) positionals.push(args[i]);
+  else if (valueFlags.includes(args[i])) i += 1;
 }
-const next = args[at + 1];
 const counts =
-  args[at] === "gateway" &&
-  !args.includes("--task-supervisor") &&
-  (next === undefined || next === "run" || next.startsWith("-"));
+  positionals[0] === "gateway" &&
+  (positionals.length === 1 || (positionals.length === 2 && positionals[1] === "run")) &&
+  !args.includes("--task-supervisor");
 globalThis[Symbol.for("openclaw.gitReleaseLauncher")] = fileURLToPath(import.meta.url);
 
 // Upgraded state keeps each replaced file as "<file>.pre-<generation>". Restore them

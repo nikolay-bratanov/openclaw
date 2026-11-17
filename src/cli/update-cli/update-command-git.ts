@@ -49,12 +49,7 @@ import { runCommandWithTimeout } from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { splitShellArgs } from "../../utils/shell-argv.js";
-import {
-  ensureGitCheckout,
-  readPackageVersion,
-  resolveGitInstallDir,
-  resolveGlobalManager,
-} from "./shared.js";
+import { ensureGitCheckout, resolveGitInstallDir, resolveGlobalManager } from "./shared.js";
 import { readPackageUpdateIdentity } from "./update-command-package-identity.js";
 import { readOriginalUpdateRecovery } from "./update-command-recovery.js";
 import { assessSnapshotCapacityOfferingCleanup } from "./update-snapshot-space-cleanup.js";
@@ -548,9 +543,11 @@ export async function updateGitInstall(params: {
 }
 
 /**
- * Replace the global npm package directory with a stub whose `openclaw.mjs` starts the release
- * launcher, so the package's existing bin shims select a pending release and count Gateway trial
- * starts. The directory a running CLI may still load from is moved aside and removed best-effort.
+ * Point the global npm package's `openclaw.mjs`, which its bin shims run, at the release launcher,
+ * so `openclaw` on PATH selects a pending release and counts Gateway trial starts. The rest of the
+ * package stays: this updater and a running Gateway still load from it, and an old service
+ * definition may still name its `dist/index.js`. Its disk space stays used until
+ * `npm uninstall -g openclaw` (accepted).
  */
 async function exposeGlobalPackageThroughLauncher(
   packageRoot: string,
@@ -560,32 +557,18 @@ async function exposeGlobalPackageThroughLauncher(
   if (!launcher) {
     return `${slot} is not a Git release link; \`openclaw\` on PATH still starts the npm package.`;
   }
-  const stage = `${packageRoot}.release-cli-${process.pid}`;
-  const aside = `${packageRoot}.replaced-${Date.now()}`;
+  const entry = path.join(packageRoot, "openclaw.mjs");
+  const stage = `${entry}.release-${process.pid}`;
   try {
-    await fs.rm(stage, { recursive: true, force: true });
-    await fs.mkdir(stage);
-    const manifest = { name: "openclaw", version: await readPackageVersion(slot), type: "module" };
     await fs.writeFile(
-      path.join(stage, "package.json"),
-      `${JSON.stringify({ ...manifest, bin: { openclaw: "openclaw.mjs" } }, null, 2)}\n`,
-    );
-    await fs.writeFile(
-      path.join(stage, "openclaw.mjs"),
+      stage,
       `#!/usr/bin/env node\n// Starts the OpenClaw Git release that ${slot} selects.\nawait import(${JSON.stringify(pathToFileURL(launcher).href)});\n`,
       { mode: 0o755 },
     );
-    await fs.rename(packageRoot, aside);
+    await fs.rename(stage, entry);
+    return undefined;
   } catch (error) {
-    await fs.rm(stage, { recursive: true, force: true }).catch(() => {});
-    return `${packageRoot} could not be replaced (${String(error)}); \`openclaw\` on PATH still starts the npm package. Run \`npm uninstall -g openclaw\`, then start OpenClaw with ${launcher}.`;
+    await fs.rm(stage, { force: true }).catch(() => {});
+    return `${entry} could not start ${launcher} (${String(error)}); \`openclaw\` on PATH still starts the npm package. Run \`npm uninstall -g openclaw\`, then start OpenClaw with ${launcher}.`;
   }
-  try {
-    await fs.rename(stage, packageRoot);
-  } catch (error) {
-    await fs.rename(aside, packageRoot).catch(() => {});
-    return `${packageRoot} could not start ${launcher} (${String(error)}); \`openclaw\` on PATH still starts the npm package.`;
-  }
-  await fs.rm(aside, { recursive: true, force: true }).catch(() => {});
-  return undefined;
 }

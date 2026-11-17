@@ -312,6 +312,8 @@ describe.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
 
       // A status query starts no Gateway, so it neither selects nor counts the release.
       expect(wrapper("--profile", "work", "gateway", "status")).toBe("current\n");
+      expect(wrapper("gateway", "--profile", "work", "status")).toBe("current\n");
+      expect(wrapper("gateway", "--port", "1234", "status")).toBe("current\n");
       // An implicit foreground run after root options starts the Gateway.
       expect(wrapper("--profile", "work", "gateway")).toBe("next\n");
     });
