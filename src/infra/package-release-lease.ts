@@ -55,7 +55,6 @@ export function acquirePackageReleaseLease(runningRoot: string): () => void {
   const releasesDir = path.dirname(releasePrefix);
   // Only a release that a package link has selected; other `releases/` trees have their own owners.
   if (
-    process.platform === "win32" ||
     path.basename(releasesDir) !== PACKAGE_RELEASES_DIR ||
     packageReleaseGlobalRoot(releasePrefix) !== releaseGlobalRoot ||
     !resolvePackageReleaseSlotForRootSync(runningRoot)

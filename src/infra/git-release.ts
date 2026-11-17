@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveConfigPath } from "../config/paths.js";
 import { sleep } from "../utils/sleep.js";
-import { syncDirectoryIfSupported } from "./directory-durability.js";
 import { ignoreMissingPath } from "./errno.js";
 import { readGatewayOwnerLease } from "./gateway-owner-lease.js";
 import { writeGitReleaseLauncher, type GitReleaseTrial } from "./git-release-launcher.js";
@@ -16,9 +15,9 @@ import {
 } from "./package-release-slot-path.js";
 import {
   capturePackageReleaseSlot,
+  createPackageReleaseLink,
   createPackageReleasePrefix,
   packageReleaseLinkTarget,
-  sweepPackageReleaseTemporaryLinks,
   switchPackageReleaseLink,
 } from "./package-release-slot.js";
 import { readBuiltGatewayBuildId } from "./update-git-runtime.js";
@@ -73,14 +72,11 @@ export async function publishGitRelease(params: {
       });
     }
   } else {
-    const globalRoot = path.dirname(slot);
-    await fs.mkdir(globalRoot, { recursive: true });
-    await sweepPackageReleaseTemporaryLinks(globalRoot);
-    const temporary = path.join(globalRoot, `.openclaw.release-link-${process.pid}-${Date.now()}`);
-    await fs.symlink(target, temporary);
-    params.assertCurrent?.();
-    await fs.rename(temporary, slot);
-    await syncDirectoryIfSupported(globalRoot);
+    await createPackageReleaseLink({
+      slot,
+      target,
+      assertCurrent: () => params.assertCurrent?.(),
+    });
   }
   if (params.trial && previous) {
     const buildId = await readBuiltGatewayBuildId(params.releaseRoot);
@@ -112,7 +108,8 @@ export async function settleGitReleaseTrial(runningRoot: string | null): Promise
   const raw = await fs.readFile(trialFile, "utf8").catch(ignoreMissingPath);
   // SAFETY: publishGitRelease and the launcher are the only writers of the trial record.
   const trial = raw ? (JSON.parse(raw) as GitReleaseTrial) : null;
-  if (trial?.target === slot.target) {
+  const linked = (target: string) => path.resolve(path.dirname(slot.slot), target);
+  if (trial && linked(trial.target) === linked(slot.target)) {
     await fs.rm(trialFile, { force: true });
   }
 }

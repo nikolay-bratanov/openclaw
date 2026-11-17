@@ -84,9 +84,14 @@ export async function assertPackageReleaseIdentity(expected: PackageReleaseIdent
   }
 }
 
-/** Relative text keeps the link valid when the whole prefix moves. */
+/**
+ * Relative text keeps the link valid when the whole prefix moves. A Windows junction
+ * stores an absolute target, so its text is absolute, as `readlink` reports it.
+ */
 export function packageReleaseLinkTarget(slot: string, releaseRoot: string): string {
-  return path.relative(path.dirname(slot), releaseRoot);
+  return process.platform === "win32"
+    ? path.resolve(releaseRoot)
+    : path.relative(path.dirname(slot), releaseRoot);
 }
 
 /** Allocate the private npm prefix that becomes a release once the link names it. */
@@ -167,10 +172,43 @@ async function createTemporaryLink(globalRoot: string, target: string) {
     globalRoot,
     `${TEMPORARY_LINK_PREFIX}${process.pid}-${Date.now()}-${randomBytes(4).toString("hex")}`,
   );
-  await fs.symlink(target, temporary);
+  // POSIX ignores the type; on Windows a junction needs no administrator rights.
+  await fs.symlink(target, temporary, "junction");
   const identity = statIdentity(await fs.lstat(temporary, { bigint: true }));
   await syncDirectoryIfSupported(globalRoot);
   return { temporary, identity };
+}
+
+/**
+ * Rename a temporary link onto the package path. Windows cannot rename onto an existing
+ * junction, so it removes the old one first; a process killed in between leaves no
+ * package path, and the next update publishes the link again.
+ */
+async function publishTemporaryLink(temporary: string, slot: string) {
+  if (process.platform === "win32") {
+    await fs.unlink(slot).catch(ignoreMissingPath);
+  }
+  await fs.rename(temporary, slot);
+}
+
+/** Create the package link where none exists yet, with one rename. */
+export async function createPackageReleaseLink(params: {
+  slot: string;
+  target: string;
+  assertCurrent: () => void;
+}): Promise<void> {
+  const globalRoot = path.dirname(params.slot);
+  await fs.mkdir(globalRoot, { recursive: true });
+  await sweepPackageReleaseTemporaryLinks(globalRoot);
+  const { temporary } = await createTemporaryLink(globalRoot, params.target);
+  try {
+    params.assertCurrent();
+  } catch (error) {
+    await fs.unlink(temporary).catch(ignoreMissingPath);
+    throw error;
+  }
+  await fs.rename(temporary, params.slot);
+  await syncDirectoryIfSupported(globalRoot);
 }
 
 /**
@@ -201,7 +239,7 @@ export async function switchPackageReleaseLink(params: {
     await fs.unlink(temporary).catch(ignoreMissingPath);
     throw error;
   }
-  await fs.rename(temporary, params.slot);
+  await publishTemporaryLink(temporary, params.slot);
   const published = await fs.lstat(params.slot, { bigint: true });
   if (statIdentity(published) !== identity) {
     throw new Error(`Package link ${params.slot} was replaced during the release switch.`);

@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { gitReleaseSlot, resolveGitReleasePrefix } from "./git-release-paths.js";
 import { collectGitReleases, createGitReleaseDirs, publishGitRelease } from "./git-release.js";
@@ -197,6 +198,9 @@ export async function updateGitRelease(params: {
       await cleanup?.();
       return { status: "error" as const, reason: "git-release-place-failed" };
     }
+    // pnpm links on Windows are junctions with absolute targets in the build path; keep
+    // that path resolving to the moved tree (POSIX links are relative and ignore it).
+    await fs.symlink(dirs.releaseRoot, dirs.buildDir, "junction");
     return { ...built, releaseRoot: dirs.releaseRoot };
   };
 

@@ -104,8 +104,14 @@ export async function collectPackageReleases(params: {
   );
   const releasesDir = releasesDirOf(selected.prefix);
   const ids = await fs.readdir(releasesDir);
+  // A file another process still holds open (Windows) can stop a removal; it is retried
+  // here on the next collection and never blocks the update.
   for (const leftover of ids.filter((id) => id.startsWith(".collecting-"))) {
-    await fs.rm(path.join(releasesDir, leftover), { recursive: true, force: true });
+    await fs
+      .rm(path.join(releasesDir, leftover), { recursive: true, force: true })
+      .catch((error: unknown) =>
+        warnings.push(`Could not remove ${leftover}: ${formatErrorMessage(error)}`),
+      );
   }
   for (const id of ids) {
     if (id.startsWith(".") || id === selected.releaseId) {
