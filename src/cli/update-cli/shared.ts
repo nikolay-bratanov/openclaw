@@ -253,13 +253,6 @@ type GitCheckoutResult = {
   step: UpdateStepResult | null;
 };
 
-type StagedGitCheckout = (
-  root: string,
-  publish: () => Promise<string>,
-  targetRoot: string,
-  storageRoot: string,
-) => Promise<void>;
-
 async function cloneGitCheckoutTransactionally(
   params: Parameters<typeof ensureGitCheckout>[0],
 ): Promise<GitCheckoutResult & { commandResult?: SpawnResult }> {
@@ -400,11 +393,7 @@ async function cloneGitCheckoutTransactionally(
       published = true;
       return targetDir;
     };
-    if (params.useStagedCheckout) {
-      await params.useStagedCheckout(stagingDir, publish, targetDir, storageRoot);
-    } else {
-      await publish();
-    }
+    await publish();
   };
   let operationFailure: { error: unknown } | undefined;
   try {
@@ -471,7 +460,6 @@ export async function ensureGitCheckout(params: {
   timeoutMs: number;
   progress?: UpdateStepProgress;
   env?: NodeJS.ProcessEnv;
-  useStagedCheckout?: StagedGitCheckout;
   assertCurrent?: () => void;
 }): Promise<GitCheckoutResult> {
   const gitEnv = params.env ?? (await createGlobalInstallEnv());
