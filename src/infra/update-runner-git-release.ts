@@ -75,8 +75,10 @@ export async function updateGitRelease(params: {
   const running = converting ? params.gitRoot : slot;
   const git = (root: string, ...args: string[]) =>
     runCommand(["git", "-C", root, ...args], { cwd: root, timeoutMs });
+  // The requested checkout owns the source: a release resolves to its own repository,
+  // and a different checkout sharing this state directory keeps its own.
   const commonDir = (
-    await git(running, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    await git(params.gitRoot, "rev-parse", "--path-format=absolute", "--git-common-dir")
   ).stdout.trim();
   const gitRoot = path.basename(commonDir) === ".git" ? path.dirname(commonDir) : params.gitRoot;
   // A checkout serves what its dist was built from, which can trail a pulled HEAD; the

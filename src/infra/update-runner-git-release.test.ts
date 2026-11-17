@@ -126,6 +126,50 @@ describe.skipIf(process.platform === "win32")("Git release updates", () => {
     expect(await fs.realpath(gitReleaseSlot(prefix))).not.toBe(await fs.realpath(running));
   });
 
+  it("builds from the requested checkout when another checkout's release serves", async () => {
+    const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "git-release-run-")));
+    roots.push(dir);
+    vi.stubEnv("OPENCLAW_STATE_DIR", path.join(dir, "state"));
+    const [a, b] = [path.join(dir, "a"), path.join(dir, "b")];
+    for (const checkout of [a, b]) {
+      await fs.mkdir(checkout);
+      await git(checkout, "init", "-q", "--initial-branch=main");
+      await fs.writeFile(
+        path.join(checkout, "package.json"),
+        '{"name":"openclaw","version":"1.0.0"}',
+      );
+      await git(checkout, "add", ".");
+      await git(checkout, "-c", "user.email=t@e", "-c", "user.name=T", "commit", "-qm", "base");
+    }
+    const prefix = path.join(dir, "state", "git-install");
+    const running = (await createGitReleaseDirs(prefix)).releaseRoot;
+    await git(a, "worktree", "add", "--detach", running, "HEAD");
+    await publishGitRelease({ prefix, releaseRoot: running, trial: false });
+
+    const result = await updateGitRelease({
+      gitRoot: b,
+      runCommand: (argv, options) =>
+        argv[1]?.endsWith("openclaw.mjs")
+          ? Promise.resolve({ code: 0, stdout: "1.0.0\n", stderr: "" })
+          : runCommandWithTimeout(argv, options),
+      defaultCommandEnv: undefined,
+      timeoutMs: 10_000,
+      startedAt: Date.now(),
+      opts: {
+        channel: "dev",
+        inspectGitTarget: async () => {},
+        validateCandidate: async () => [],
+        beforeGitMutation: async () => {},
+      },
+    });
+
+    expect(result.status, JSON.stringify(result.steps)).toBe("ok");
+    const release = await fs.realpath(gitReleaseSlot(prefix));
+    expect(await git(release, "rev-parse", "--path-format=absolute", "--git-common-dir")).toBe(
+      path.join(b, ".git"),
+    );
+  });
+
   it("reports a current release as prepared so finalization never regenerates it", async () => {
     target.runtimeVerified = true;
     const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "git-release-current-")));
