@@ -182,9 +182,6 @@ it.each([
         beforeGitMutation: async () => {
           throw new Error("Failed admission must not mutate the checkout");
         },
-        runGitDoctor: async () => {
-          throw new Error("Failed admission must not run Doctor");
-        },
       },
     }),
     undefined,

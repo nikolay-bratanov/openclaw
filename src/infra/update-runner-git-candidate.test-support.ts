@@ -24,7 +24,7 @@ export type GitUpdateFixture = Awaited<ReturnType<typeof createGitFixtureCheckou
   writeRuntime: (root?: string, sha?: string, layout?: string) => Promise<void>;
   validateCandidate: (candidateRoot: string) => Promise<void>;
   beforeGitMutation: () => Promise<void>;
-  update: (opts: GitUpdateOptions) => Promise<UpdateRunResult>;
+  update: (opts?: GitUpdateOptions) => Promise<UpdateRunResult>;
 };
 type GitUpdateOptions = Partial<UpdateRunnerOptions>;
 

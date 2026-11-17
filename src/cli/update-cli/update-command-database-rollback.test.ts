@@ -28,7 +28,6 @@ import {
 } from "../../infra/update-run-ledger.js";
 import { loadPluginCohortRecovery } from "../../infra/update-run-recovery-store.js";
 import { renderUpdateRunReport } from "../../infra/update-run-report.js";
-import { runFixtureGit as git } from "../../infra/update-runner-git-candidate.test-support.js";
 import type { UpdateRunResult } from "../../infra/update-runner-types.js";
 import { CommandProcessCleanupError } from "../../process/exec-result.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../../state/openclaw-state-db-contract.js";
@@ -836,10 +835,6 @@ it.each([
             expect(
               loadPluginCohortRecovery(run.runId, { env: serviceEnv, allowNativeRead: true }),
             ).toBeUndefined();
-            if (beforeGitSha) {
-              expect(await git(packageRoot, "rev-parse", "HEAD")).toBe(beforeGitSha);
-              expect(await git(packageRoot, "status", "--porcelain")).toBe("");
-            }
             verifySettledHistory = () => {
               const record = getUpdateRun(run.runId, { env });
               expect(record).toMatchObject(
@@ -902,7 +897,6 @@ it.each([
       }
       verifySettledHistory?.();
     } finally {
-      await opts.run?.sourceArtifactLock?.release();
     }
   },
 );

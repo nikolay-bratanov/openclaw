@@ -591,7 +591,6 @@ describe("update-cli", () => {
           builtSha: sha,
           databaseEngines,
         });
-        await options.prepareGitExposure?.(tempDir, sha, undefined);
         await options.validateCandidate(tempDir);
         await check.requireValue(
           options.beforeGitMutation,

@@ -118,7 +118,6 @@ it.each(snapshotCases)(
           beforeGitMutation,
           validateCandidate,
           inspectGitTarget: async () => {},
-          getManagedServiceEnv: () => undefined,
           getSnapshotSource,
           jsonMode: true,
         });

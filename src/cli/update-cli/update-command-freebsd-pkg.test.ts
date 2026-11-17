@@ -48,7 +48,6 @@ function gitUpdateParams(root: string): Parameters<typeof updateGitInstall>[0] {
     inspectGitTarget: refuseMutation,
     validateCandidate: refuseMutation,
     beforeGitMutation: refuseMutation,
-    getManagedServiceEnv: () => undefined,
     getSnapshotSource: async () => ({ config: {}, env: process.env }),
   };
 }
