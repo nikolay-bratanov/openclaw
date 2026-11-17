@@ -237,7 +237,9 @@ export async function updateGitRelease(params: {
       devTarget: opts.devTarget,
       // Same source is current only when the running release's artifacts verify (#158931).
       // A conversion from a linked worktree can serve a different commit than the checkout.
-      beforeRuntimeVerified: recovery.serviceRestartSafe && beforeSha === runningSha,
+      // A package-to-Git switch always builds its first release, even from a current checkout.
+      beforeRuntimeVerified:
+        !params.firstRelease && recovery.serviceRestartSafe && beforeSha === runningSha,
       beforeGitStaging: opts.beforeGitStaging,
       validateCandidate: opts.validateCandidate,
       needsCheckoutMain: channel === "dev" && !opts.devTarget && branch !== DEV_BRANCH,

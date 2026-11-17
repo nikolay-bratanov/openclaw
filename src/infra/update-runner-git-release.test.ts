@@ -225,6 +225,34 @@ describe.skipIf(process.platform === "win32")("Git release updates", () => {
     expect(target.beforeRuntimeVerified).toEqual([false]);
   });
 
+  it("publishes the first release of a package-to-Git switch from a current checkout", async () => {
+    const { dir, checkout } = await checkoutWithTwoCommits();
+
+    const result = await updateGitRelease({
+      gitRoot: checkout,
+      runCommand: (argv, options) =>
+        argv[1]?.endsWith("openclaw.mjs")
+          ? Promise.resolve({ code: 0, stdout: "1.0.0\n", stderr: "" })
+          : runCommandWithTimeout(argv, options),
+      defaultCommandEnv: undefined,
+      timeoutMs: 10_000,
+      startedAt: Date.now(),
+      firstRelease: true,
+      opts: {
+        channel: "dev",
+        inspectGitTarget: async () => {},
+        validateCandidate: async () => [],
+        beforeGitMutation: async () => {},
+      },
+    });
+
+    expect(target.beforeRuntimeVerified).toEqual([false]);
+    expect(result.status, JSON.stringify(result.steps)).toBe("ok");
+    await expect(
+      fs.realpath(gitReleaseSlot(path.join(dir, "state", "git-install"))),
+    ).resolves.toBeTruthy();
+  });
+
   it("builds the first release from the commit the checkout's dist was built from", async () => {
     const { checkout, serving, pulled } = await checkoutWithTwoCommits();
     // Built at 1.0.0, then pulled without rebuilding: the Gateway still serves 1.0.0.

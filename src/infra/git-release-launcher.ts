@@ -34,7 +34,7 @@ const prefix = path.dirname(fileURLToPath(import.meta.url));
 const slot = path.join(prefix, "lib", "node_modules", "openclaw");
 const trialFile = path.join(prefix, "releases", "${GIT_RELEASE_TRIAL}");
 // Gateway starts count: the service's "gateway --port ..." and a foreground "gateway run" from
-// the CLI wrapper, never "gateway status". The Windows task supervisor only starts the Gateway
+// the CLI wrapper, never "gateway status" or "gateway --help". The Windows task supervisor only starts the Gateway
 // child, through this launcher (it reads the global below), so the child's starts count.
 // Root options may sit anywhere in the command path, as in "gateway --profile work status". The
 // value flags mirror cli-root-options.mjs and gateway-run-argv.mjs, which this file cannot import
@@ -52,7 +52,7 @@ for (let i = 0; i < args.length; i += 1) {
 const counts =
   positionals[0] === "gateway" &&
   (positionals.length === 1 || (positionals.length === 2 && positionals[1] === "run")) &&
-  !args.includes("--task-supervisor");
+  !args.some((arg) => ["--task-supervisor", "--help", "-h", "--version", "-V"].includes(arg));
 globalThis[Symbol.for("openclaw.gitReleaseLauncher")] = fileURLToPath(import.meta.url);
 
 // Upgraded state keeps each replaced file as "<file>.pre-<generation>". Restore them
