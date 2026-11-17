@@ -13,7 +13,7 @@ import {
 } from "../../infra/update-run-ledger.js";
 import { getUpdateRunStatusAsync } from "../../infra/update-run-reader.js";
 import type { UpdateRunResult } from "../../infra/update-run-result.js";
-import { updateGitCheckout } from "../../infra/update-runner-git.js";
+import { updateGitCheckout } from "../../infra/update-runner-git-release.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
 import { closeStateDatabaseForTest } from "../../test-utils/database-cleanup.js";
 import { stepFixture } from "./update-command-fixtures.test-support.js";

@@ -123,7 +123,7 @@ export function registerForegroundFailureRecoveryTests(deps: {
 export function registerFailureSelectorTests(deps: {
   updateCommand: typeof UpdateCommand;
   updateFinalizeCommand: typeof UpdateFinalizeCommand;
-  updateGitCheckout: typeof import("../../infra/update-runner-git.js").updateGitCheckout;
+  updateGitCheckout: typeof import("../../infra/update-runner-git-release.js").updateGitCheckout;
   readConfigFileSnapshot: typeof ReadConfigFileSnapshot;
   profileStateDir: () => string;
   runUpdateFailureTriage: typeof RunUpdateFailureTriage;

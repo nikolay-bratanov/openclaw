@@ -1,5 +1,5 @@
 import { theme } from "../../../packages/terminal-core/src/theme.js";
-import { usesGitReleases } from "../../infra/git-release-paths.js";
+import { prepareGitReleaseLayout } from "../../infra/git-release-paths.js";
 import type { PackageActivationRuntime } from "../../infra/package-update-activation-runtime.types.js";
 import { tryProcessCwd } from "../../infra/safe-cwd.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
@@ -16,7 +16,6 @@ import { VERSION } from "../../version.js";
 import type { createUpdateProgress } from "./progress.js";
 import {
   confirmUpdateDowngrade,
-  resolveGitInstallDir,
   type UpdateCommandOptions,
 } from "./shared.js";
 import {
@@ -320,19 +319,12 @@ async function updateCommandInternal(
       });
     }
 
-    let releaseLayoutWarning: string | undefined;
-    const gitRelease =
-      updateInstallKind === "git" &&
-      usesGitReleases(
-        switchToGit,
-        await (
-          await import("./update-command-git.js")
-        ).gatewayServiceOwnsGitInstall(root, shouldRestart),
-        (reason) => {
-          releaseLayoutWarning = `Git release layout unavailable (${reason}); updating the checkout in place. The next update tries the release layout again.`;
-          defaultRuntime.error(`Warning: ${releaseLayoutWarning}`);
-        },
-      );
+    // Every Git install runs from releases behind the release link.
+    const gitRelease = updateInstallKind === "git";
+    const releaseLayoutWarning = gitRelease ? prepareGitReleaseLayout() : undefined;
+    if (releaseLayoutWarning) {
+      defaultRuntime.error(`Warning: ${releaseLayoutWarning}`);
+    }
     const finalizationContext = {
       opts,
       gitRelease,
@@ -489,7 +481,7 @@ async function updateCommandInternal(
       const retentionStartedAt = Date.now();
       await progress.onStepStart?.(retentionStep);
       const retention = await retainRuntime({
-        mutationRoots: [root, ...(switchToGit ? [resolveGitInstallDir()] : [])],
+        mutationRoots: [root],
         installTarget,
         env,
         timeoutMs: updateStepTimeoutMs,

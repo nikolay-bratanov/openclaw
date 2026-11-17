@@ -116,7 +116,6 @@ describe.skipIf(process.platform === "win32")("Git release updates", () => {
         inspectGitTarget: async () => {},
         validateCandidate: async () => [],
         beforeGitMutation: async () => {},
-        runGitDoctor: async () => null,
       },
     });
 
@@ -163,7 +162,6 @@ describe.skipIf(process.platform === "win32")("Git release updates", () => {
         inspectGitTarget: async () => {},
         validateCandidate: async () => [],
         beforeGitMutation: async () => {},
-        runGitDoctor: async () => null,
       },
     });
 
@@ -211,7 +209,6 @@ describe.skipIf(process.platform === "win32")("Git release updates", () => {
         inspectGitTarget: async () => {},
         validateCandidate: async () => [],
         beforeGitMutation: async () => {},
-        runGitDoctor: async () => null,
       },
     });
 

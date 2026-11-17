@@ -20,7 +20,7 @@ import {
   isolateGitIdentity,
   runFixtureGit,
 } from "../../infra/update-runner-git-candidate.test-support.js";
-import { updateGitCheckout } from "../../infra/update-runner-git.js";
+import { updateGitCheckout } from "../../infra/update-runner-git-release.js";
 import type { UpdateRunResult } from "../../infra/update-runner-types.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
 import { VERSION } from "../../version.js";

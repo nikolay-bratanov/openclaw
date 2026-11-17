@@ -25,7 +25,7 @@ import {
   updateRunReportInputFromResult,
 } from "../../infra/update-run-report.js";
 import { DEFAULT_UPDATE_STEP_TIMEOUT_MS } from "../../infra/update-run-timeouts.js";
-import * as gitRunner from "../../infra/update-runner-git.js";
+import * as gitRunner from "../../infra/update-runner-git-release.js";
 import type { UpdateRunResult } from "../../infra/update-runner-types.js";
 import type { UpdateStepResult } from "../../infra/update-step-result.js";
 import {

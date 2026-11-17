@@ -247,7 +247,7 @@ vi.mock("../infra/update-triage.js", async (importOriginal) => {
 });
 
 // Keep CLI orchestration on the canonical Git updater boundary.
-vi.mock("../infra/update-runner-git.js", () => ({
+vi.mock("../infra/update-runner-git-release.js", () => ({
   updateGitCheckout: vi.fn(),
 }));
 

@@ -43,6 +43,8 @@ export async function updateGitRelease(params: {
   defaultCommandEnv: NodeJS.ProcessEnv | undefined;
   timeoutMs: number;
   startedAt: number;
+  /** A package-to-Git switch: no Git release serves yet, so the target is the first one. */
+  firstRelease?: boolean;
 }): Promise<UpdateRunResult> {
   const { opts, timeoutMs, startedAt, runCommand } = params;
   const defaultCommandEnv = resolveGitUpdateCommandEnv(params.defaultCommandEnv);
@@ -206,7 +208,7 @@ export async function updateGitRelease(params: {
 
   // The first release is the code that runs now. It is not a candidate: it runs already.
   let previousRelease: string | undefined;
-  if (converting) {
+  if (converting && !params.firstRelease) {
     const current = await buildRelease((release, common, retainCleanup) =>
       runGitCandidatePreflight({
         ...common,

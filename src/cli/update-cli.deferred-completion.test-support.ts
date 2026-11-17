@@ -53,7 +53,7 @@ vi.mock("../runtime.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../runtime.js")>()),
   defaultRuntime: runtimeCapture,
 }));
-vi.mock("../infra/update-runner-git.js", () => ({
+vi.mock("../infra/update-runner-git-release.js", () => ({
   updateGitCheckout: vi.fn(),
 }));
 // Runtime publication has its own fixture; this suite owns deferred completion and config writes.
@@ -151,7 +151,7 @@ const {
 } = await import("./update-cli/update-cli-config.test-support.js");
 const { writeJsonFixture } = await import("./update-cli/update-cli-package.test-support.js");
 const { createTempHomeEnv } = await import("../test-utils/temp-home.js");
-export const { updateGitCheckout } = await import("../infra/update-runner-git.js");
+export const { updateGitCheckout } = await import("../infra/update-runner-git-release.js");
 const { runExec, runCommandWithTimeout } = await import("../process/exec.js");
 export { runExec };
 export const { defaultRuntime, ExitError } = await import("../runtime.js");

@@ -13,7 +13,6 @@ import { createConfigIO } from "../../config/io.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import * as serviceMembership from "../../daemon/service-process-membership.js";
 import { buildBackupArchivePath } from "../../infra/backup-archive-path-policy.js";
-import * as gitReleasePaths from "../../infra/git-release-paths.js";
 import { capturePackageActivationRuntime } from "../../infra/package-update-activation-paths.js";
 import { swapStagedPackageInstall } from "../../infra/package-update-swap.js";
 import { createPackageSwapFixture } from "../../infra/package-update-swap.test-support.js";
@@ -33,7 +32,7 @@ import {
   isolateGitIdentity,
   runFixtureGit as git,
 } from "../../infra/update-runner-git-candidate.test-support.js";
-import { updateGitCheckout } from "../../infra/update-runner-git.js";
+import { updateGitCheckout } from "../../infra/update-runner-git-release.js";
 import type { UpdateRunResult } from "../../infra/update-runner-types.js";
 import { CommandProcessCleanupError } from "../../process/exec-result.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
@@ -136,8 +135,6 @@ const { runUpdateFinalizationDoctorInFreshProcess } =
 const { withOwnedManagedUpdateEnv } = await import("./update-command-service-env.js");
 
 beforeEach(() => {
-  // These cases cover the in-place Git runner Windows checkouts and package-to-Git switches use.
-  vi.spyOn(gitReleasePaths, "usesGitReleases").mockReturnValue(false);
   vi.spyOn(stateMetadata, "readUpdateStateDatabaseSizes").mockImplementation((files, { signal }) =>
     stateMetadata.readUpdateStateDatabaseSizesInProcess(files, signal),
   );

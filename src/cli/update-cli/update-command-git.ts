@@ -4,20 +4,15 @@ import { sameFileIdentity } from "@openclaw/fs-safe/advanced";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { resolveGatewayService } from "../../daemon/service.js";
-import { resolvePathViaExistingAncestorSync } from "../../infra/boundary-path.js";
 import { readRegularFile } from "../../infra/fs-safe.js";
-import { gitReleaseSlot, resolveGitReleasePrefix } from "../../infra/git-release-paths.js";
-import type { PackageUpdateTransaction } from "../../infra/package-update-swap-contract.js";
+import { resolveGitReleasePrefix } from "../../infra/git-release-paths.js";
 import { hasNodeErrorCode } from "../../infra/path-guards.js";
-import { mergeProcessEnv } from "../../infra/process-env.js";
 import { assessInitialUpdateSnapshotCapacity } from "../../infra/update-candidate-snapshot.js";
 import { DEV_BRANCH, type UpdateChannel } from "../../infra/update-channels.js";
 import {
   resolveDevUpdateTargetRevision,
   type DevUpdateTarget,
 } from "../../infra/update-dev-target.js";
-import { getUpdateDoctorConfigFailureReason } from "../../infra/update-doctor-config.js";
 import {
   readGitUpdateFetchTarget,
   resolveGitUpdateTrackingRef,
@@ -25,24 +20,20 @@ import {
 import type { CommandRunner as GlobalCommandRunner } from "../../infra/update-global-command-runner.js";
 import {
   createGlobalInstallEnv,
-  verifyPackageUpdateRecovery,
   resolveGlobalInstallTarget,
-  resolveNpmLifecyclePolicyGate,
   type ResolvedGlobalInstallTarget,
 } from "../../infra/update-global.js";
-import { resolveNativePackageProjectRoot } from "../../infra/update-native-package-owner.js";
 import {
   DEFAULT_UPDATE_STEP_TIMEOUT_MS,
   UPDATE_RUNNER_TIMEOUT_MS,
 } from "../../infra/update-run-timeouts.js";
 import {
   buildUpdateCommandRunner,
-  normalizeFallbackFailureReason,
   reportUpdateStepCompletion,
 } from "../../infra/update-runner-command.js";
 import { readGitTargetSchemaVersions } from "../../infra/update-runner-git-schema.js";
 import { readBranchName, selectChannelTag } from "../../infra/update-runner-git-target.js";
-import { updateGitCheckout } from "../../infra/update-runner-git.js";
+import { updateGitRelease } from "../../infra/update-runner-git-release.js";
 import type {
   CommandRunner as UpdateRunnerCommandRunner,
   UpdateRunnerOptions,
@@ -55,25 +46,21 @@ import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { splitShellArgs } from "../../utils/shell-argv.js";
 import {
-  DEFAULT_PACKAGE_NAME,
   ensureGitCheckout,
-  readPackageName,
   resolveGitInstallDir,
   resolveGlobalManager,
-  runUpdateStep,
 } from "./shared.js";
 import { readPackageUpdateIdentity } from "./update-command-package-identity.js";
-import { prepareGitPackageExposure, runPackageUpdateDoctor } from "./update-command-package.js";
 import { readOriginalUpdateRecovery } from "./update-command-recovery.js";
-import {
-  gatewayServiceCommandUsesRoot,
-  inspectManagedGatewayServiceBeforeUpdate,
-  readGatewayServiceStateForUpdate,
-} from "./update-command-service-plan.js";
 import { assessSnapshotCapacityOfferingCleanup } from "./update-snapshot-space-cleanup.js";
 
+/**
+ * The installer's `openclaw` wrapper for a checkout: retired after a switch to a package,
+ * or pointed at `replacementRoot` (the release link) once a Git install runs from releases.
+ */
 export async function retireStandaloneGitWrapper(params: {
   previousRoot: string;
+  replacementRoot?: string;
   platform?: NodeJS.Platform;
   searchDirs?: readonly string[];
   assertCurrent?: () => void;
@@ -161,13 +148,32 @@ export async function retireStandaloneGitWrapper(params: {
     // Ownership refusals must remain errors, never optional filesystem warnings.
     params.assertCurrent?.();
     try {
-      await fs.unlink(wrapperPath);
+      if (params.replacementRoot) {
+        const entry = (platform === "win32" ? path.win32 : path).join(
+          params.replacementRoot,
+          "dist",
+          "entry.js",
+        );
+        // The installer's formats, so its own wrapper checks still recognize the result.
+        const next =
+          platform === "win32"
+            ? `@echo off\r\nnode "${entry}" %*\r\n`
+            : `${lines[0]}\n${lines[1]}\nexec ${shellQuote(execArgs![1]!)} ${shellQuote(entry)} "$@"\n`;
+        const temporary = `${wrapperPath}.${process.pid}.tmp`;
+        await fs.writeFile(temporary, next, { mode: 0o755 });
+        await fs.rename(temporary, wrapperPath);
+      } else {
+        await fs.unlink(wrapperPath);
+      }
     } catch (error) {
-      return { error: `Could not retire ${wrapperPath}: ${String(error)}` };
+      return { error: `Could not update ${wrapperPath}: ${String(error)}` };
     }
   }
   return {};
 }
+
+/** Bash `printf %q` style quoting, as the installer writes the wrapper. */
+const shellQuote = (value: string) => value.replace(/[^\w@%+=:,./-]/gu, "\\$&");
 
 type GitInspectionParams = {
   runCommand: GlobalCommandRunner;
@@ -366,12 +372,7 @@ export async function inspectGitDryRunTargetSchemaVersions(params: {
 
 export async function updateGitInstall(params: {
   root: string;
-  fullIntegrityCheck?: boolean;
-  restart?: boolean;
-  sourceRuntimePrepared?: boolean;
   switchToGit: boolean;
-  /** Decided once by the update command (usesGitReleases). */
-  gitReleases?: boolean;
   deferReleaseActivation?: boolean;
   installKind: "git" | "package" | "unknown";
   timeoutMs: number | undefined;
@@ -382,13 +383,8 @@ export async function updateGitInstall(params: {
   beforeGitMutation: UpdateRunnerOptions["beforeGitMutation"];
   validateCandidate: UpdateRunnerOptions["validateCandidate"];
   assertCurrent?: () => void;
-  onTransaction?: (transaction: PackageUpdateTransaction) => void | Promise<void>;
-  onConfigSnapshot?: Parameters<typeof runPackageUpdateDoctor>[0]["onConfigSnapshot"];
-  getDoctorContext?: Parameters<typeof runPackageUpdateDoctor>[0]["getDoctorContext"];
-  getManagedServiceEnv: () => NodeJS.ProcessEnv | undefined;
   getSnapshotSource: () => Promise<{ config: OpenClawConfig; env: NodeJS.ProcessEnv }>;
   jsonMode?: boolean;
-  invocationCwd?: string;
   nodeRunner?: string;
   inspectGitTarget: (
     target: Parameters<UpdateRunnerOptions["inspectGitTarget"]>[0],
@@ -396,7 +392,7 @@ export async function updateGitInstall(params: {
   ) => Promise<void>;
 }): Promise<UpdateRunResult> {
   const assertCurrent = params.assertCurrent;
-  let updateRoot = params.switchToGit ? resolveGitInstallDir() : params.root;
+  const updateRoot = params.switchToGit ? resolveGitInstallDir() : params.root;
   const effectiveTimeout = params.timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS;
   const pkgOwnership = createSystemPackageOwnershipInspection(effectiveTimeout);
   await pkgOwnership.assertUnowned(updateRoot);
@@ -415,30 +411,18 @@ export async function updateGitInstall(params: {
       })
     : null;
   const installEnv = await createGlobalInstallEnv(undefined, installTarget ?? {});
-  const npmLifecycleGate = installTarget
-    ? resolveNpmLifecyclePolicyGate(installTarget)
-    : { policy: null, error: null };
-
   const failed = async (
     reason: string,
     steps: UpdateRunResult["steps"],
-    recovery = readOriginalUpdateRecovery(params, effectiveTimeout),
   ): Promise<UpdateRunResult> => ({
     status: "error",
     mode: "git",
     root: params.root,
     reason,
-    recovery: await recovery,
+    recovery: await readOriginalUpdateRecovery(params, effectiveTimeout),
     steps,
     durationMs: Date.now() - params.startedAt,
   });
-
-  // Package-to-Git updates must settle package-manager policy before cloning or
-  // updating the checkout; carry this exact decision into the later install.
-  if (npmLifecycleGate.error) {
-    defaultRuntime.error(npmLifecycleGate.error);
-    return failed("npm-lifecycle-policy-preflight", []);
-  }
 
   const checkSnapshot = async () => {
     const info = {
@@ -450,8 +434,6 @@ export async function updateGitInstall(params: {
     await params.progress.onStepStart?.(info);
     assertCurrent?.();
     const { config, env } = await params.getSnapshotSource();
-    const backupProject =
-      installTarget && resolveNativePackageProjectRoot(installTarget, installEnv);
     // An interactive update was offered cleanup before it started; here it is only named.
     const snapshot = await assessSnapshotCapacityOfferingCleanup(
       () =>
@@ -459,11 +441,7 @@ export async function updateGitInstall(params: {
           config,
           stateDir: resolveStateDir(env),
           env,
-          backupDirectory: params.switchToGit
-            ? backupProject
-              ? path.dirname(resolvePathViaExistingAncestorSync(backupProject))
-              : (installTarget?.globalRoot ?? path.dirname(params.root))
-            : path.join(params.root, ".artifacts"),
+          backupDirectory: resolveGitReleasePrefix(env),
         }),
       { prompt: false, env, print: () => {} },
     );
@@ -484,202 +462,103 @@ export async function updateGitInstall(params: {
   };
   const snapshotBeforeClone = params.switchToGit ? await checkSnapshot() : undefined;
   if (snapshotBeforeClone && snapshotBeforeClone.exitCode !== 0) {
-    return failed(
-      "snapshot-capacity-insufficient",
-      [snapshotBeforeClone],
-      verifyPackageUpdateRecovery(params.root),
-    );
+    return failed("snapshot-capacity-insufficient", [snapshotBeforeClone]);
   }
-
   const previousPackage = installTarget
     ? await readPackageUpdateIdentity(installTarget.packageRoot ?? params.root)
     : undefined;
-  let exposure: Awaited<ReturnType<typeof prepareGitPackageExposure>> | undefined;
-  const runDoctor: NonNullable<UpdateRunnerOptions["runGitDoctor"]> = (root, results) =>
-    runPackageUpdateDoctor({
-      ...params,
-      results,
-      managedServiceEnv: params.getManagedServiceEnv(),
-      root,
-      timeoutMs: effectiveTimeout,
-      workTimeoutMs: params.timeoutMs ?? null,
-    });
-  const runUpdate = async (
-    gitRoot: string,
-    publishGitCheckout?: () => Promise<string>,
-    gitArtifactStorageRoot?: string,
-  ) =>
-    updateGitCheckout({
-      ...(await buildUpdateCommandRunner(undefined, params.assertCurrent)),
-      gitRoot,
-      timeoutMs: params.timeoutMs ?? UPDATE_RUNNER_TIMEOUT_MS,
-      startedAt: params.startedAt,
-      opts: {
-        gitReleases: params.gitReleases === true,
-        deferReleaseActivation: params.deferReleaseActivation,
-        releaseNode: params.nodeRunner,
-        timeoutMs: params.timeoutMs,
-        sourceRuntimePrepared: params.sourceRuntimePrepared,
+  // A package-to-Git switch clones the checkout; its first release is a fresh worktree of it.
+  const checkout = params.switchToGit
+    ? await ensureGitCheckout({
+        dir: updateRoot,
+        assertCurrent,
+        env: installEnv,
+        timeoutMs: effectiveTimeout,
         progress: params.progress,
-        channel: params.channel,
-        devTarget: params.devTarget,
-        beforeGitMutation: async (target) => {
-          await params.beforeGitMutation(target);
-          await createSystemPackageOwnershipInspection(effectiveTimeout).assertUnowned(updateRoot);
-          params.assertCurrent?.();
-        },
-        inspectGitTarget: (target) => params.inspectGitTarget(target, installTarget ?? undefined),
-        beforeGitStaging: params.switchToGit
-          ? undefined
-          : async () => ({
-              step: await checkSnapshot(),
-              failureReason: "snapshot-capacity-insufficient",
-            }),
-        publishGitCheckout,
-        gitArtifactStorageRoot,
-        validateCandidate: params.validateCandidate,
-        ...(installTarget
-          ? {
-              prepareGitExposure: async (candidateRoot, candidateSha, candidateEnv) => {
-                const packageName =
-                  (await readPackageName(installTarget.packageRoot ?? params.root)) ??
-                  DEFAULT_PACKAGE_NAME;
-                exposure = await prepareGitPackageExposure({
-                  installTarget,
-                  installSpec: candidateRoot,
-                  packageName,
-                  packageRoot: installTarget.packageRoot,
-                  runCommand: runCommandWithTimeout,
-                  runStep: (stepParams) =>
-                    runUpdateStep({ ...stepParams, progress: params.progress }),
-                  timeoutMs: effectiveTimeout,
-                  workTimeoutMs: params.timeoutMs ?? null,
-                  env: mergeProcessEnv([installEnv, candidateEnv]),
-                  installCwd: candidateRoot,
-                  expectedGitCheckout: { root: candidateRoot, sha: candidateSha },
-                  activateGitRoot: updateRoot,
-                  onTransaction: params.onTransaction,
-                  assertCurrent: params.assertCurrent,
-                  postVerifyStep: runDoctor,
-                });
-              },
-            }
-          : {
-              onTransaction: params.onTransaction,
-              runGitDoctor: runDoctor,
-            }),
-      },
-    });
-  let stagedUpdateResult: UpdateRunResult | undefined;
-  try {
-    const checkout = params.switchToGit
-      ? await ensureGitCheckout({
-          dir: updateRoot,
-          assertCurrent: params.assertCurrent,
-          env: installEnv,
-          timeoutMs: effectiveTimeout,
-          progress: params.progress,
-          useStagedCheckout: async (stagingRoot, publish, targetRoot, storageRoot) => {
-            // Exposure must use the clone owner's pinned destination, not a
-            // caller alias that transport may have retargeted meanwhile.
-            updateRoot = targetRoot;
-            await createSystemPackageOwnershipInspection(effectiveTimeout).assertUnowned(
-              updateRoot,
-            );
-            stagedUpdateResult = await runUpdate(stagingRoot, publish, storageRoot);
-            if (stagedUpdateResult.root === stagingRoot) {
-              stagedUpdateResult = {
-                ...stagedUpdateResult,
-                root: params.root,
-                recovery: await verifyPackageUpdateRecovery(params.root),
-              };
-            }
-          },
-        })
-      : null;
-    const cloneStep = checkout?.step ?? null;
-    updateRoot = checkout?.checkoutDir ?? updateRoot;
-
-    if (cloneStep && cloneStep.exitCode !== 0) {
-      return await failed("git-clone-failed", [
-        ...(snapshotBeforeClone ? [snapshotBeforeClone] : []),
-        cloneStep,
-      ]);
-    }
-
-    const updateResult = stagedUpdateResult ?? (await runUpdate(updateRoot));
-    const before = previousPackage ?? updateResult.before;
-    const steps = [
-      ...(snapshotBeforeClone ? [snapshotBeforeClone] : []),
-      ...(cloneStep ? [cloneStep] : []),
-      ...updateResult.steps,
-    ];
-    if (exposure && updateResult.status === "ok") {
-      const packageUpdate = await exposure.activate();
-      return {
-        ...updateResult,
-        before,
-        status: packageUpdate.failedStep ? "error" : "ok",
-        reason:
-          packageUpdate.reason ??
-          getUpdateDoctorConfigFailureReason(packageUpdate.failedStep?.configWriteRefusal) ??
-          (packageUpdate.failedStep
-            ? normalizeFallbackFailureReason(packageUpdate.failedStep.name)
-            : undefined),
-        recovery: packageUpdate.recovery,
-        failedStep: packageUpdate.failedStep ?? undefined,
-        steps: [...steps, ...packageUpdate.steps],
-        durationMs: Date.now() - params.startedAt,
-      };
-    }
-    if (exposure) {
-      const cancelled = await exposure.cancel();
-      exposure = undefined;
-      const packageRoot = installTarget?.packageRoot ?? params.root;
-      const [packageOwner, gitOwner, serviceUsesPackage] = await Promise.all([
-        fs.realpath(packageRoot).catch(() => null),
-        fs.realpath(updateRoot).catch(() => null),
-        gatewayServiceCommandUsesRoot({ root: packageRoot, env: params.getManagedServiceEnv() }),
-      ]);
-      // Source publication can fail after stopping an untouched package service.
-      // Recover that exact package; its version alone cannot authorize Git source.
-      if (packageOwner && gitOwner && packageOwner !== gitOwner && serviceUsesPackage === true) {
-        updateResult.recovery = cancelled.recovery;
-      }
-      steps.push(...cancelled.steps);
-    }
-    return { ...updateResult, before, steps, durationMs: Date.now() - params.startedAt };
-  } finally {
-    await exposure?.cancel();
+      })
+    : null;
+  const cloneSteps = [
+    ...(snapshotBeforeClone ? [snapshotBeforeClone] : []),
+    ...(checkout?.step ? [checkout.step] : []),
+  ];
+  if (checkout?.step && checkout.step.exitCode !== 0) {
+    return await failed("git-clone-failed", cloneSteps);
   }
+  const gitRoot = checkout?.checkoutDir ?? updateRoot;
+  const result = await updateGitRelease({
+    ...(await buildUpdateCommandRunner(undefined, assertCurrent)),
+    gitRoot,
+    timeoutMs: params.timeoutMs ?? UPDATE_RUNNER_TIMEOUT_MS,
+    startedAt: params.startedAt,
+    firstRelease: params.switchToGit,
+    opts: {
+      deferReleaseActivation: params.deferReleaseActivation,
+      releaseNode: params.nodeRunner,
+      timeoutMs: params.timeoutMs,
+      progress: params.progress,
+      channel: params.channel,
+      devTarget: params.devTarget,
+      beforeGitMutation: async (target) => {
+        await params.beforeGitMutation(target);
+        await createSystemPackageOwnershipInspection(effectiveTimeout).assertUnowned(gitRoot);
+        assertCurrent?.();
+      },
+      inspectGitTarget: (target) => params.inspectGitTarget(target, installTarget ?? undefined),
+      beforeGitStaging: params.switchToGit
+        ? undefined
+        : async () => ({
+            step: await checkSnapshot(),
+            failureReason: "snapshot-capacity-insufficient",
+          }),
+      validateCandidate: params.validateCandidate,
+    },
+  });
+  const steps = [...cloneSteps, ...result.steps];
+  const packageRoot = installTarget?.packageRoot;
+  if (packageRoot && result.status === "ok" && result.root) {
+    // `openclaw` on PATH resolves through the global package path; it now names the release link.
+    const warning = await linkGlobalPackageToRelease(packageRoot, result.root);
+    if (warning) {
+      defaultRuntime.error(`Warning: ${warning}`);
+      steps.push({
+        name: "git-release-cli",
+        command: "link the global package to the release",
+        cwd: packageRoot,
+        durationMs: 0,
+        exitCode: 0,
+        advisory: { kind: "recoverable-maintenance", message: warning },
+      });
+    }
+  }
+  return {
+    ...result,
+    before: previousPackage ?? result.before,
+    steps,
+    durationMs: Date.now() - params.startedAt,
+  };
 }
 
 /**
- * Whether a release switch reaches the next Gateway start: the installed service already
- * starts the release link, or it starts this checkout and this update restarts it with a
- * definition redirected to the launcher (`--no-restart` never rewrites it). Otherwise the
- * checkout updates in place.
+ * Replace the global npm package directory with a link to the release link, so its bin
+ * shims start the selected release. The package directory a running CLI may still load
+ * from is moved aside and removed best-effort.
  */
-export async function gatewayServiceOwnsGitInstall(
-  root: string,
-  shouldRestart: boolean,
-  timeoutMs?: number,
-) {
+async function linkGlobalPackageToRelease(
+  packageRoot: string,
+  slot: string,
+): Promise<string | undefined> {
+  const aside = `${packageRoot}.replaced-${Date.now()}`;
   try {
-    const state = await readGatewayServiceStateForUpdate(
-      resolveGatewayService(),
-      process.env,
-      timeoutMs,
-    );
-    const slot = gitReleaseSlot(resolveGitReleasePrefix());
-    const release = await inspectManagedGatewayServiceBeforeUpdate({ root: slot, state });
-    if (release.kind === "owned") {
-      return true;
-    }
-    const checkout = await inspectManagedGatewayServiceBeforeUpdate({ root, state });
-    return shouldRestart && checkout.kind === "owned" && checkout.refreshDefinition;
-  } catch {
-    // An unreadable service keeps the in-place runner, which needs no service.
+    await fs.rename(packageRoot, aside);
+  } catch (error) {
+    return `${packageRoot} could not be replaced (${String(error)}); \`openclaw\` on PATH still starts the npm package. Run \`npm uninstall -g openclaw\`, then start OpenClaw from ${slot}.`;
   }
-  return false;
+  try {
+    await fs.symlink(slot, packageRoot, "junction");
+  } catch (error) {
+    await fs.rename(aside, packageRoot).catch(() => {});
+    return `${packageRoot} could not link to ${slot} (${String(error)}); \`openclaw\` on PATH still starts the npm package.`;
+  }
+  await fs.rm(aside, { recursive: true, force: true }).catch(() => {});
+  return undefined;
 }

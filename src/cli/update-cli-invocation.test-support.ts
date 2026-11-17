@@ -10,7 +10,7 @@ import {
   createGitRuntimeTransaction,
   prepareGitRuntimePromotion,
 } from "../infra/update-runner-git-runtime.js";
-import { updateGitCheckout } from "../infra/update-runner-git.js";
+import { updateGitCheckout } from "../infra/update-runner-git-release.js";
 import type { UpdateRunResult } from "../infra/update-runner-types.js";
 import { ExitError } from "../runtime.js";
 import type { UpdateCommandOptions } from "./update-cli/shared.js";

@@ -1,7 +1,6 @@
 import type { SpawnResult } from "../process/exec-result.js";
 import type { CommandOptions } from "../process/exec.js";
 import type { OpenClawSchemaVersions } from "../state/openclaw-schema-versions.js";
-import type { PackageUpdateTransaction } from "./package-update-swap-contract.js";
 import type { UpdateChannel } from "./update-channels.js";
 import type { DevUpdateTarget } from "./update-dev-target.js";
 import type { GlobalInstallManager } from "./update-global.js";
@@ -47,10 +46,6 @@ export type UpdateRunnerOptions = {
   sourceRuntimePrepared?: boolean;
   channel?: UpdateChannel;
   devTarget?: DevUpdateTarget;
-  /** Expose a new checkout only after target admission; subsequent work uses the published path. */
-  publishGitCheckout?: () => Promise<string>;
-  /** Owns preflight artifact storage when publication moves a newly cloned checkout. */
-  gitArtifactStorageRoot?: string;
   /** Read-only admission before executing a fetched candidate; never stops a service. */
   inspectGitTarget: (target: GitUpdateTarget) => Promise<void>;
   /** Admit required preparation after no-op detection, before allocating the candidate worktree. */
@@ -58,8 +53,6 @@ export type UpdateRunnerOptions = {
   /** Accepted candidate checks join the update's step results. */
   validateCandidate: (root: string) => Promise<readonly UpdateStepResult[] | void>;
   beforeGitMutation: (target: GitUpdateTarget) => Promise<void>;
-  /** Build the target as a release behind the release link instead of updating the checkout in place. */
-  gitReleases?: boolean;
   /** `--no-restart`: the next service start selects the release instead of this update. */
   deferReleaseActivation?: boolean;
   /** The service's Node, which must load a Git release before the link names it. */
@@ -67,26 +60,7 @@ export type UpdateRunnerOptions = {
   /** Required work uses the caller's deadline; probes, cleanup, and optional replay keep finite defaults. */
   timeoutMs?: number;
   progress?: UpdateStepProgress;
-  /** Retain source/runtime before Doctor; the finalizer owns state-safe rollback. */
-  onTransaction?: (transaction: PackageUpdateTransaction) => void | Promise<void>;
-} & (
-  | {
-      /** CLI-owned activation Doctor retains its config writer and requester authority. */
-      runGitDoctor: (
-        root: string,
-        results?: UpdateStepResult[],
-      ) => Promise<UpdateStepResult | null>;
-      prepareGitExposure?: never;
-    }
-  | {
-      runGitDoctor?: never;
-      prepareGitExposure: (
-        candidateRoot: string,
-        candidateSha: string,
-        env: NodeJS.ProcessEnv | undefined,
-      ) => Promise<void>;
-    }
-);
+};
 
 export type UpdateInstallSurface =
   | { kind: "immutable"; mode: "unknown"; root: string; packageRoot: string }

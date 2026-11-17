@@ -92,7 +92,6 @@ export type UpdateCommandOptions = Pick<UpdateRunResult, "sourceRuntimePrepared"
     executorFence?: UpdateRecoveryFence;
     /** A signal closes forward admission while accepted receipts settle. */
     interrupted?: true;
-    sourceArtifactLock?: import("@openclaw/fs-safe/file-lock").FileLockHandle;
   };
   acceptCapabilities?: boolean;
   fullIntegrityCheck?: boolean;

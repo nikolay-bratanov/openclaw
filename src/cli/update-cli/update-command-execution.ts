@@ -12,7 +12,6 @@ import { assertReadableGitMetadata } from "./schema-preflight.js";
 import {
   normalizeTag,
   readPackageVersion,
-  resolveGitInstallDir,
   UpdatePreMutationError,
 } from "./shared.js";
 import {
@@ -31,7 +30,6 @@ import {
 } from "./update-command-database-context.js";
 import { settleMutableUpdateResult } from "./update-command-execution-settlement.js";
 import type { MutableUpdateExecutionParams } from "./update-command-execution.types.js";
-import { admitSourceUpdateArtifacts } from "./update-command-git-admission.js";
 import { updateGitInstall } from "./update-command-git.js";
 import {
   formatUpdateAncestryBlockMessage,
@@ -199,12 +197,7 @@ export async function executeMutableUpdate(
     return { ...context, runId, executorFence, inputHash };
   };
   const originalRecovery = () => readOriginalUpdateRecovery(params, updateStepTimeoutMs);
-  const gitMutationRoots =
-    params.updateInstallKind === "git"
-      ? params.switchToGit
-        ? [params.root, resolveGitInstallDir()]
-        : [params.root]
-      : null;
+  const gitMutationRoots = params.updateInstallKind === "git" ? [params.root] : null;
   const stopManagedServiceBeforeMutableUpdate = async (
     mutationRoots: readonly string[] = [params.root],
     phase: "inspect" | "prepare" = "prepare",
@@ -415,16 +408,12 @@ export async function executeMutableUpdate(
     }
   };
   // A Git release never stops or verifies the serving Gateway before activation.
-  let servicePrepared = params.gitRelease === true;
+  let servicePrepared = params.updateInstallKind === "git";
   // Activation-window timing the install runners cannot observe.
   const activationSteps: UpdateStepResult[] = [];
   const beforeActivate = async (roots: readonly string[] = [params.root]) => {
     await waitForCurrent();
     familyAdmission.assertAdmitted();
-    if (params.switchToGit && !opts.run?.sourceArtifactLock) {
-      await admitSourceUpdateArtifacts(resolveGitInstallDir(), opts.run);
-      assertExecutionCurrent();
-    }
     const env = ownedManagedUpdateContext?.env ?? opts.run?.env ?? process.env;
     // Use the validated config for this update; concurrent edits apply on the next run.
     const snapshot = validatedConfigSnapshot ?? (await readCandidateConfig(env));
@@ -479,7 +468,7 @@ export async function executeMutableUpdate(
     assertExecutionCurrent();
     const publication = {
       // Every consumer keeps the release it started from; a release replaces no root.
-      roots: params.gitRelease ? [] : roots,
+      roots: params.updateInstallKind === "git" ? [] : roots,
       env,
       timeoutMs: updateStepTimeoutMs,
       assertCurrent: assertExecutionCurrent,
@@ -589,15 +578,14 @@ export async function executeMutableUpdate(
           : runPackageInstallUpdate(packageUpdate),
       );
     } else {
-      const gitRoot = params.switchToGit ? resolveGitInstallDir() : params.root;
-      // Releases build in their own worktrees; the checkout's artifacts are never written.
-      const prepared = !params.gitRelease && (await admitSourceUpdateArtifacts(gitRoot, opts.run));
-      assertExecutionCurrent();
       const gitUpdate: Parameters<typeof updateGitInstall>[0] = {
-        ...installOptions,
-        sourceRuntimePrepared: prepared,
+        root: params.root,
+        installKind: params.installKind,
+        startedAt: params.startedAt,
+        progress: params.progress,
+        nodeRunner: params.packageUpdateNodeRunner,
+        assertCurrent: assertExecutionCurrent,
         switchToGit: params.switchToGit,
-        gitReleases: params.gitRelease,
         deferReleaseActivation: !params.shouldRestart,
         timeoutMs: params.timeoutMs,
         channel: params.channel,
@@ -629,9 +617,6 @@ export async function executeMutableUpdate(
             await beforeActivate(gitMutationRoots ?? [params.root]);
           }
         },
-        onTransaction,
-        // Foreign inspection metadata cannot authorize backup or Doctor writes.
-        getManagedServiceEnv: () => ownedManagedUpdateContext?.env,
         getSnapshotSource: async () => {
           const env =
             ownedManagedUpdateContext?.env ?? admission?.managedEnv ?? opts.run?.env ?? process.env;

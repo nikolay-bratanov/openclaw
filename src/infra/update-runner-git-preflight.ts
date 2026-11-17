@@ -1,14 +1,11 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { normalizeNullableString } from "@openclaw/normalization-core/string-coerce";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { hasCommandProcessCleanupError } from "../process/exec-result.js";
 import { resolveControlUiAssetHealth } from "./control-ui-assets.js";
-import { hasErrnoCode, ignoreMissingPath } from "./errno.js";
+import { hasErrnoCode } from "./errno.js";
 import { formatErrorMessage } from "./errors.js";
 import { readPackageManagerSpec } from "./package-json.js";
-import { resolveExternalPackageRuntimeEntrypointUrl } from "./runtime-process-url.js";
 import { DEV_BRANCH } from "./update-channels.js";
 import { resolveDevUpdateTargetRevision, type DevUpdateTarget } from "./update-dev-target.js";
 import { resolveGitUpdateTrackingRef, type GitFetchTarget } from "./update-git-metadata.js";
@@ -276,27 +273,6 @@ async function testPreflightCandidate(
     if (failure) {
       return { status: classifyPreflightFailure(failure) };
     }
-    // Global source exposure can run package lifecycle scripts. Validate and retain
-    // the resulting candidate only after that preparation finishes.
-    await params.prepareGitExposure?.(params.worktreeDir, candidateSha, candidateCommand.env);
-    // Exposure can run another install after postbuild. Its final topology, not
-    // the earlier build graph, must own the packaged plugin dependency links.
-    const metadataScript = fileURLToPath(
-      resolveExternalPackageRuntimeEntrypointUrl("sourcePluginMetadata", params.worktreeDir),
-    );
-    if (
-      params.prepareGitExposure &&
-      (await fs.stat(metadataScript).catch(ignoreMissingPath))?.isFile()
-    ) {
-      const relink = await runCandidateCheck(
-        "bundled-plugin-dependency-links",
-        ["node", metadataScript],
-        candidateCommand.env,
-      );
-      if (relink) {
-        return { status: classifyPreflightFailure(relink) };
-      }
-    }
     await candidateCommand.restoreWorkspace?.();
     params.steps.push(...((await params.validateCandidate(params.worktreeDir)) ?? []));
     // Activation checks out candidateSha and promotes only generated runtime paths.
@@ -351,7 +327,6 @@ export async function runGitCandidatePreflight(params: {
   release?: { prefix: string; worktreeDir: string };
   beforeGitStaging?: UpdateRunnerOptions["beforeGitStaging"];
   validateCandidate: UpdateRunnerOptions["validateCandidate"];
-  prepareGitExposure?: UpdateRunnerOptions["prepareGitExposure"];
   prepareCandidate?: (root: string, cleanupRoot: string) => Promise<void>;
   retainCleanup?: (cleanup: () => Promise<boolean>) => boolean;
   onCleanupReportingError?: (error: unknown) => void;
@@ -476,7 +451,7 @@ export async function runGitCandidatePreflight(params: {
   // Reference builds must consume operator inputs even when their Git HEAD is current.
   // Source identity alone cannot prove the installed build is complete.
   const canSkipActivation =
-    !params.referenceSource && !params.prepareGitExposure && params.beforeRuntimeVerified;
+    !params.referenceSource && params.beforeRuntimeVerified;
   let rebaseFrom = params.referenceSource
     ? params.referenceSource.branch === DEV_BRANCH
       ? undefined
