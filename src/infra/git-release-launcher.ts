@@ -36,13 +36,18 @@ const trialFile = path.join(prefix, "releases", "${GIT_RELEASE_TRIAL}");
 // Gateway starts count: the service's "gateway --port ..." and a foreground "gateway run" from
 // the CLI wrapper, never "gateway status". The Windows task supervisor only starts the Gateway
 // child, through this launcher (it reads the global below), so the child's starts count.
+// Root options mirror cli-root-options.mjs, which this file cannot import from a release.
 const args = process.argv.slice(2);
-const at = args.indexOf("gateway");
+let at = 0;
+while (at < args.length && args[at].startsWith("-")) {
+  const [flag, value] = args[at].split("=");
+  at += ["--profile", "--log-level", "--container"].includes(flag) && value === undefined ? 2 : 1;
+}
 const next = args[at + 1];
 const counts =
-  at >= 0 &&
+  args[at] === "gateway" &&
   !args.includes("--task-supervisor") &&
-  (next === "run" || (at === 0 && (next === undefined || next.startsWith("-"))));
+  (next === undefined || next === "run" || next.startsWith("-"));
 globalThis[Symbol.for("openclaw.gitReleaseLauncher")] = fileURLToPath(import.meta.url);
 
 // Upgraded state keeps each replaced file as "<file>.pre-<generation>". Restore them

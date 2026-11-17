@@ -311,8 +311,9 @@ describe.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
         }).stdout;
 
       // A status query starts no Gateway, so it neither selects nor counts the release.
-      expect(wrapper("gateway", "status")).toBe("current\n");
-      expect(wrapper("gateway", "run")).toBe("next\n");
+      expect(wrapper("--profile", "work", "gateway", "status")).toBe("current\n");
+      // An implicit foreground run after root options starts the Gateway.
+      expect(wrapper("--profile", "work", "gateway")).toBe("next\n");
     });
 
     it("keeps the applied plan and the trial when removing an addition fails", async () => {

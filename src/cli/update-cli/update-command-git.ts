@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { sameFileIdentity } from "@openclaw/fs-safe/advanced";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { resolveStateDir } from "../../config/paths.js";
@@ -48,7 +49,12 @@ import { runCommandWithTimeout } from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { splitShellArgs } from "../../utils/shell-argv.js";
-import { ensureGitCheckout, resolveGitInstallDir, resolveGlobalManager } from "./shared.js";
+import {
+  ensureGitCheckout,
+  readPackageVersion,
+  resolveGitInstallDir,
+  resolveGlobalManager,
+} from "./shared.js";
 import { readPackageUpdateIdentity } from "./update-command-package-identity.js";
 import { readOriginalUpdateRecovery } from "./update-command-recovery.js";
 import { assessSnapshotCapacityOfferingCleanup } from "./update-snapshot-space-cleanup.js";
@@ -519,8 +525,8 @@ export async function updateGitInstall(params: {
   const steps = [...cloneSteps, ...result.steps];
   const packageRoot = installTarget?.packageRoot;
   if (packageRoot && result.status === "ok" && result.root) {
-    // `openclaw` on PATH resolves through the global package path; it now names the release link.
-    const warning = await linkGlobalPackageToRelease(packageRoot, result.root);
+    // `openclaw` on PATH resolves through the global package path; it now starts the launcher.
+    const warning = await exposeGlobalPackageThroughLauncher(packageRoot, result.root);
     if (warning) {
       defaultRuntime.error(`Warning: ${warning}`);
       steps.push({
@@ -542,25 +548,43 @@ export async function updateGitInstall(params: {
 }
 
 /**
- * Replace the global npm package directory with a link to the release link, so its bin
- * shims start the selected release. The package directory a running CLI may still load
- * from is moved aside and removed best-effort.
+ * Replace the global npm package directory with a stub whose `openclaw.mjs` starts the release
+ * launcher, so the package's existing bin shims select a pending release and count Gateway trial
+ * starts. The directory a running CLI may still load from is moved aside and removed best-effort.
  */
-async function linkGlobalPackageToRelease(
+async function exposeGlobalPackageThroughLauncher(
   packageRoot: string,
   slot: string,
 ): Promise<string | undefined> {
+  const launcher = resolveGitReleaseLauncherForEntrypoint(path.join(slot, "dist", "index.js"));
+  if (!launcher) {
+    return `${slot} is not a Git release link; \`openclaw\` on PATH still starts the npm package.`;
+  }
+  const stage = `${packageRoot}.release-cli-${process.pid}`;
   const aside = `${packageRoot}.replaced-${Date.now()}`;
   try {
+    await fs.rm(stage, { recursive: true, force: true });
+    await fs.mkdir(stage);
+    const manifest = { name: "openclaw", version: await readPackageVersion(slot), type: "module" };
+    await fs.writeFile(
+      path.join(stage, "package.json"),
+      `${JSON.stringify({ ...manifest, bin: { openclaw: "openclaw.mjs" } }, null, 2)}\n`,
+    );
+    await fs.writeFile(
+      path.join(stage, "openclaw.mjs"),
+      `#!/usr/bin/env node\n// Starts the OpenClaw Git release that ${slot} selects.\nawait import(${JSON.stringify(pathToFileURL(launcher).href)});\n`,
+      { mode: 0o755 },
+    );
     await fs.rename(packageRoot, aside);
   } catch (error) {
-    return `${packageRoot} could not be replaced (${String(error)}); \`openclaw\` on PATH still starts the npm package. Run \`npm uninstall -g openclaw\`, then start OpenClaw from ${slot}.`;
+    await fs.rm(stage, { recursive: true, force: true }).catch(() => {});
+    return `${packageRoot} could not be replaced (${String(error)}); \`openclaw\` on PATH still starts the npm package. Run \`npm uninstall -g openclaw\`, then start OpenClaw with ${launcher}.`;
   }
   try {
-    await fs.symlink(slot, packageRoot, "junction");
+    await fs.rename(stage, packageRoot);
   } catch (error) {
     await fs.rename(aside, packageRoot).catch(() => {});
-    return `${packageRoot} could not link to ${slot} (${String(error)}); \`openclaw\` on PATH still starts the npm package.`;
+    return `${packageRoot} could not start ${launcher} (${String(error)}); \`openclaw\` on PATH still starts the npm package.`;
   }
   await fs.rm(aside, { recursive: true, force: true }).catch(() => {});
   return undefined;
