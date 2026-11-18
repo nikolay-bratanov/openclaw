@@ -12,6 +12,7 @@ import type {
 import * as gatewayService from "../../daemon/service.js";
 import { createMockGatewayService } from "../../daemon/service.test-helpers.js";
 import { sha256Hex } from "../../infra/crypto-digest.js";
+import * as gatewayLock from "../../infra/gateway-lock.js";
 import { createUpdateFailureFact } from "../../infra/update-failure-facts.js";
 import { CommandProcessCleanupError } from "../../process/exec-result.js";
 import * as nativeExec from "../../process/exec.js";
@@ -470,6 +471,21 @@ describe("service fingerprint", () => {
         throw failure;
       });
       await expect(publish({ HOME: home })).rejects.toBe(failure);
+    }));
+
+  it("does not warn a live Gateway about a Git release, which replaces no installed root", () =>
+    withServiceHome(async (home) => {
+      // The live Gateway runs through the release launcher, which no package entrypoint matches.
+      vi.spyOn(gatewayLock, "readActiveGatewayLockIdentity").mockResolvedValue({
+        pid: process.pid,
+        createdAt: "2026-11-18T05:55:00.000Z",
+        port: 18789,
+      });
+      vi.spyOn(gatewayBindings, "discoverManagedGatewayBindings").mockResolvedValue([]);
+
+      await expect(
+        publish({ HOME: home }, { roots: [], updateInstallKind: "git", phase: "publication" }),
+      ).resolves.toBeUndefined();
     }));
 
   it.each([

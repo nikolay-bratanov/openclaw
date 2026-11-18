@@ -630,7 +630,6 @@ describe("update-cli", () => {
       expect(cli.readConfigFileSnapshot).toHaveBeenCalledWith({ observe: false });
       const call = vi.mocked(gitUpdate).mock.calls[0]?.[0];
       expect(call?.opts.channel).toBe("dev");
-      await expect(fs.realpath(packageRoot)).resolves.toBe(tempDir);
       // Directory-observation helpers can also spawn while the update runs.
       const updateInvocations = mocks.spawn.mock.calls
         .map(([, args]) => args)

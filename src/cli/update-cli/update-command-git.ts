@@ -170,7 +170,9 @@ export async function retireStandaloneGitWrapper(params: {
         await fs.unlink(wrapperPath);
       }
     } catch (error) {
-      return { error: `Could not update ${wrapperPath}: ${String(error)}` };
+      return {
+        error: `Could not ${params.replacementRoot ? "update" : "retire"} ${wrapperPath}: ${String(error)}`,
+      };
     }
   }
   return {};

@@ -92,6 +92,10 @@ export async function inspectGatewayArtifactConsumer(params: {
   assertCurrent: () => void;
   verdict?: Extract<ManagedGatewayUpdateVerdict, { kind: "unavailable" }>;
 }): Promise<string | undefined> {
+  // A Git release replaces no installed root, so a live Gateway keeps every file it loads.
+  if (params.roots.length === 0) {
+    return undefined;
+  }
   let owner: GatewayLockIdentity | undefined;
   let packageRoot: string | undefined;
   let cause: unknown;

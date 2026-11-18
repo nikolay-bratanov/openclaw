@@ -14,8 +14,6 @@ import {
 import { resolveGatewayService } from "../../daemon/service.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { readGatewayOwnerLease } from "../../infra/gateway-owner-lease.js";
-import { waitForGitReleaseSuccessor } from "../../infra/git-release.js";
-import { readPackageReleaseSlotSync } from "../../infra/package-release-slot-path.js";
 import { recordUpdateRunPhase } from "../../infra/update-run-ledger.js";
 import type { UpdateStepResult } from "../../infra/update-step-result.js";
 import {
@@ -50,9 +48,13 @@ import {
 } from "./update-command-service-command.js";
 import type { UpdateServiceRestartParams } from "./update-command-service-context-types.js";
 import { resolveServiceRefreshEnv } from "./update-command-service-env.js";
+import {
+  recordGitReleaseServiceOwedWithoutRestart,
+  serviceDefinitionUsesRoot,
+  waitForGitReleaseRestart,
+} from "./update-command-service-git-release.js";
 import { revalidateManagedGatewayServiceAfterUpdate } from "./update-command-service-maintenance.js";
 import {
-  gatewayServiceCommandUsesRoot,
   readGatewayServiceStateForUpdate,
   resolveGatewayServiceManagementBlockMessageForUpdate,
   resolveUpdatedGatewayRestartPort,
@@ -240,19 +242,7 @@ export async function maybeRestartService(
       (activation.refreshServiceEnv ||
         activation.serviceInstallEnv === null ||
         activation.requireRunningServiceAfterRestart));
-  // The definition alone answers this. A Windows task's process can still run the previous
-  // command right after its definition moved, which fails the full ownership inspection.
-  const serviceUsesUpdatedRoot = async () =>
-    gatewayServiceCommandUsesRoot({
-      root: activation.result.root,
-      command: (
-        await readGatewayServiceStateForUpdate(
-          resolveGatewayService(),
-          activation.serviceEnv,
-          activation.timeoutMs,
-        )
-      ).command,
-    });
+  const serviceUsesUpdatedRoot = () => serviceDefinitionUsesRoot(activation);
   if (preserveDefinition && !params.definitionRecovery?.backup) {
     defaultRuntime.error(
       "Gateway service definition left unchanged; ask its deployment owner to repair stale metadata if needed.",
@@ -443,17 +433,7 @@ export async function maybeRestartService(
     if (!activation.opts.json) {
       defaultRuntime.log(theme.muted("Gateway: updater restart skipped (--no-restart)."));
     }
-    // A first Git release update leaves a service that still starts the checkout alone: its
-    // definition moves to the release launcher only with a restart, so the next update owes it.
-    if (
-      activation.result.mode === "git" &&
-      readPackageReleaseSlotSync(activation.result.root ?? "") &&
-      (await serviceUsesUpdatedRoot()) === false
-    ) {
-      const warning = `Gateway service still starts the checkout, so its next start runs the previous build. Run \`${formatCliCommand("openclaw gateway install --force", activation.serviceEnv)}\` to start it from the release link.`;
-      recordServiceReconciliationWarning(activation.result, activation.serviceEnv, warning);
-      recordOwedUpdateStep(run, { id: "service-definition", reason: warning });
-    }
+    await recordGitReleaseServiceOwedWithoutRestart(activation, serviceUsesUpdatedRoot);
     if (isPackageUpdate && activation.observePackageReplacement) {
       try {
         await verifyUpdatedGateway({
@@ -487,15 +467,10 @@ export async function maybeRestartService(
     defaultRuntime.log("");
     defaultRuntime.log(theme.heading("Restarting service..."));
   }
-  // A Git release's Gateway notices its link moved and restarts into the new release
-  // itself. A native restart from inside its service job (update.run) would end this updater.
   if (
     preserveDefinition &&
-    activation.result.mode === "git" &&
-    readPackageReleaseSlotSync(activation.result.root ?? "")
+    (await waitForGitReleaseRestart(activation, () => recordPhase("restarting")))
   ) {
-    recordPhase("restarting");
-    await waitForGitReleaseSuccessor(activation.serviceEnv, run?.deadline?.signal);
     assertCurrent();
     const outcome = await verifyRestartedGateway(
       normalizeOptionalString(expectedIdentity?.version),

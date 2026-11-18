@@ -222,7 +222,7 @@ async function advanceFixtureRemote(remote: string) {
   return runFixtureGit(remote, "rev-parse", "HEAD");
 }
 
-export const runtimeImports = [
+const runtimeImports = [
   "../dist-runtime/identity.cjs",
   "../packages/runtime/dist-runtime/identity.cjs",
   "../node_modules/identity.cjs",

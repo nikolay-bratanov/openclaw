@@ -167,7 +167,7 @@ describe("retireStandaloneGitWrapper", () => {
         } as unknown as FinishUpdateParams,
         { status: "ok", mode: "git", root: slot, steps: [], durationMs: 0 },
         () => {},
-        { root: slot, activationVerified: true, sentinel: {} as never },
+        { root: slot },
       );
     } finally {
       vi.unstubAllEnvs();
