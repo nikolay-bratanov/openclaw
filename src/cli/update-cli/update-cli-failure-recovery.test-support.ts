@@ -22,17 +22,6 @@ export async function mockUnbuiltRecoveryFixture(): Promise<void> {
   ).mockResolvedValue(null);
 }
 
-export const recoveryVerificationStep = (
-  failureFacts?: UpdateRunResult["steps"][number]["failureFacts"],
-  cwd = process.cwd(),
-) => ({
-  name: "gateway recovery verification",
-  command: "gateway verification",
-  cwd,
-  durationMs: expect.any(Number),
-  exitCode: failureFacts ? 1 : 0,
-  ...(failureFacts ? { failureFacts } : {}),
-});
 export const recoveryObservationStep = (cwd = process.cwd()) => ({
   name: "gateway recovery observation",
   command: "gateway verification",

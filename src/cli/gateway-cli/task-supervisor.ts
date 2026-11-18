@@ -67,10 +67,13 @@ export async function runWindowsGatewayTaskSupervisor(): Promise<void> {
       }
       // A Git release install starts each child through its launcher, which counts trial
       // starts and matches the installed task command.
-      const launcher: unknown = Reflect.get(globalThis, Symbol.for("openclaw.gitReleaseLauncher"));
+      const releaseLauncher: unknown = Reflect.get(
+        globalThis,
+        Symbol.for("openclaw.gitReleaseLauncher"),
+      );
       const invocation = resolveOpenClawCliInvocation({
         args: [...childArgs, formatWindowsTaskSupervisorChildArgument(restartExitCode)],
-        entryPath: typeof launcher === "string" ? launcher : undefined,
+        entryPath: typeof releaseLauncher === "string" ? releaseLauncher : undefined,
       });
       const command = [invocation.command, ...invocation.args]
         .map((argument) => quoteCmdScriptArg(argument))

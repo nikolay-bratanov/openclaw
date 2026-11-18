@@ -4,7 +4,6 @@ import path from "node:path";
 import { createDirectorySync, createFileSync } from "@openclaw/fs-safe/advanced";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeEach, expect, vi } from "vitest";
-import * as sourceArtifactPreflight from "../../scripts/lib/source-update-artifact-preflight.mts";
 import type { ConfigFileSnapshot } from "../config/types.openclaw.js";
 import {
   GATEWAY_SERVICE_RUNTIME_PID_ENV,
@@ -121,27 +120,7 @@ export function registerUpdateCliLifecycle(fixture: UpdateCliLifecycleFixture): 
     vi.spyOn(stateMetadata, "readUpdateStateDatabaseSizes").mockImplementation(
       (files, { signal }) => stateMetadata.readUpdateStateDatabaseSizesInProcess(files, signal),
     );
-    // Service control is simulated; native artifact and database owners still run on the host OS.
-    const inspectArtifacts = sourceArtifactPreflight.inspectSourceUpdateArtifacts;
-    vi.spyOn(sourceArtifactPreflight, "inspectSourceUpdateArtifacts").mockImplementation(
-      async (...args) => {
-        const inspected = await onHostPlatform(() => inspectArtifacts(...args));
-        const { lock } = inspected;
-        if (!lock) {
-          return inspected;
-        }
-        const release = () => onHostPlatform(() => lock.release());
-        return {
-          ...inspected,
-          lock: {
-            ...lock,
-            release,
-            verifyStillHeld: () => onHostPlatform(() => lock.verifyStillHeld()),
-            [Symbol.asyncDispose]: release,
-          },
-        };
-      },
-    );
+    // Service control is simulated; native database owners still run on the host OS.
     const captureBaseline = updateRecoveryBaseline.captureUpdateRecoveryBaseline;
     vi.spyOn(updateRecoveryBaseline, "captureUpdateRecoveryBaseline").mockImplementation(
       (...args) => onHostPlatform(() => captureBaseline(...args)),
