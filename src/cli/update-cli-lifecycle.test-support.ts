@@ -10,6 +10,7 @@ import {
   GATEWAY_SERVICE_RUNTIME_PID_ENV,
   GATEWAY_SERVICE_SELECTOR_ENV_KEYS,
 } from "../daemon/constants.js";
+import type * as GatewayEntrypoints from "../daemon/gateway-entrypoint.js";
 import * as taskProbe from "../daemon/schtasks-state-probe.js";
 import { mockSystemAccountHome } from "../daemon/service.test-helpers.js";
 import * as nodeSqlite from "../infra/node-sqlite.js";
@@ -326,8 +327,20 @@ export function registerUpdateCliLifecycle(fixture: UpdateCliLifecycleFixture): 
     mocks.formatPortDiagnostics.mockReturnValue(["Port 18789 is already in use."]);
     fixture.mockGatewayHealth("1.0.0", "conn-test");
     const installedEntrypoint = path.join(process.cwd(), "dist", "index.js");
-    mocks.pathExists.mockImplementation(
-      async (candidate: string) => candidate === installedEntrypoint,
+    mocks.pathExists.mockImplementation(async (candidate: string) => {
+      if (candidate === installedEntrypoint) {
+        return true;
+      }
+      return await fs.access(candidate).then(
+        () => true,
+        () => false,
+      );
+    });
+    const entrypoints = await vi.importActual<typeof GatewayEntrypoints>(
+      "../daemon/gateway-entrypoint.js",
+    );
+    vi.mocked(update.resolveGatewayInstallEntrypoint).mockImplementation(
+      entrypoints.resolveGatewayInstallEntrypoint,
     );
     mocks.syncPluginsForUpdateChannel.mockResolvedValue(pluginSyncResult(fixture.baseConfig));
     mocks.updateNpmInstalledPlugins.mockResolvedValue(npmPluginUpdateResult(fixture.baseConfig));

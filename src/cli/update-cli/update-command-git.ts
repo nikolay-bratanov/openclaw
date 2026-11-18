@@ -7,9 +7,11 @@ import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { readRegularFile } from "../../infra/fs-safe.js";
 import {
+  gitReleaseSlot,
   resolveGitReleaseLauncherForEntrypoint,
   resolveGitReleasePrefix,
 } from "../../infra/git-release-paths.js";
+import { readPackageReleaseSlotSync } from "../../infra/package-release-slot-path.js";
 import { hasNodeErrorCode } from "../../infra/path-guards.js";
 import { assessInitialUpdateSnapshotCapacity } from "../../infra/update-candidate-snapshot.js";
 import { DEV_BRANCH, type UpdateChannel } from "../../infra/update-channels.js";
@@ -491,34 +493,56 @@ export async function updateGitInstall(params: {
     return await failed("git-clone-failed", cloneSteps);
   }
   const gitRoot = checkout?.checkoutDir ?? updateRoot;
-  const result = await updateGitRelease({
-    ...(await buildUpdateCommandRunner(undefined, assertCurrent)),
-    gitRoot,
-    timeoutMs: params.timeoutMs ?? UPDATE_RUNNER_TIMEOUT_MS,
-    startedAt: params.startedAt,
-    firstRelease: params.switchToGit,
-    opts: {
-      deferReleaseActivation: params.deferReleaseActivation,
-      releaseNode: params.nodeRunner,
-      timeoutMs: params.timeoutMs,
-      progress: params.progress,
-      channel: params.channel,
-      devTarget: params.devTarget,
-      beforeGitMutation: async (target) => {
-        await params.beforeGitMutation(target);
-        await createSystemPackageOwnershipInspection(effectiveTimeout).assertUnowned(gitRoot);
-        assertCurrent?.();
+  // A switch's checkout serves only the release built from it. Until that release is published,
+  // a refused or failed switch removes the checkout it cloned: nothing uses it. Accepted: a crash
+  // in between leaves the checkout, and the next switch reuses it.
+  const discardUnpublishedClone = async () => {
+    if (!checkout?.step || readPackageReleaseSlotSync(gitReleaseSlot(resolveGitReleasePrefix()))) {
+      return;
+    }
+    await fs.rm(gitRoot, { recursive: true, force: true }).catch((error: unknown) => {
+      defaultRuntime.error(
+        `Warning: could not remove the unused checkout ${gitRoot}: ${String(error)}`,
+      );
+    });
+  };
+  let result: UpdateRunResult;
+  try {
+    result = await updateGitRelease({
+      ...(await buildUpdateCommandRunner(undefined, assertCurrent)),
+      gitRoot,
+      timeoutMs: params.timeoutMs ?? UPDATE_RUNNER_TIMEOUT_MS,
+      startedAt: params.startedAt,
+      firstRelease: params.switchToGit,
+      opts: {
+        deferReleaseActivation: params.deferReleaseActivation,
+        releaseNode: params.nodeRunner,
+        timeoutMs: params.timeoutMs,
+        progress: params.progress,
+        channel: params.channel,
+        devTarget: params.devTarget,
+        beforeGitMutation: async (target) => {
+          await params.beforeGitMutation(target);
+          await createSystemPackageOwnershipInspection(effectiveTimeout).assertUnowned(gitRoot);
+          assertCurrent?.();
+        },
+        inspectGitTarget: (target) => params.inspectGitTarget(target, installTarget ?? undefined),
+        beforeGitStaging: params.switchToGit
+          ? undefined
+          : async () => ({
+              step: await checkSnapshot(),
+              failureReason: "snapshot-capacity-insufficient",
+            }),
+        validateCandidate: params.validateCandidate,
       },
-      inspectGitTarget: (target) => params.inspectGitTarget(target, installTarget ?? undefined),
-      beforeGitStaging: params.switchToGit
-        ? undefined
-        : async () => ({
-            step: await checkSnapshot(),
-            failureReason: "snapshot-capacity-insufficient",
-          }),
-      validateCandidate: params.validateCandidate,
-    },
-  });
+    });
+  } catch (error) {
+    await discardUnpublishedClone();
+    throw error;
+  }
+  if (result.status !== "ok") {
+    await discardUnpublishedClone();
+  }
   const steps = [...cloneSteps, ...result.steps];
   const packageRoot = installTarget?.packageRoot;
   if (packageRoot && result.status === "ok" && result.root) {

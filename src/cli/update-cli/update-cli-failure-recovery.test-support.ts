@@ -59,7 +59,7 @@ export const recoveryCleanupStep = () => ({
 });
 
 export function registerForegroundFailureRecoveryTests(deps: {
-  setupUpdatedRootRefresh: (params: { admitMutation: false }) => { root: string };
+  setupUpdatedRootRefresh: () => Promise<{ root: string }>;
   spawn: Mock;
   updateCommand: typeof UpdateCommand;
   defaultRuntime: typeof DefaultRuntime;
@@ -77,7 +77,7 @@ export function registerForegroundFailureRecoveryTests(deps: {
   ])(
     "preserves foreground failure $exitCode without granting handoff $handoff authority",
     async ({ exitCode, handoff, expectedExit }) => {
-      deps.setupUpdatedRootRefresh({ admitMutation: false });
+      await deps.setupUpdatedRootRefresh();
       deps.spawn.mockImplementationOnce(() => {
         const child = new EventEmitter();
         queueMicrotask(() => {
@@ -99,9 +99,10 @@ export function registerForegroundFailureRecoveryTests(deps: {
       expect(result?.verification).toEqual({});
       expect(result).toMatchObject({
         status: "error",
+        mode: "npm",
         reason: "post-core-update-failed",
         recovery: { serviceRestartSafe: false },
-        steps: [
+        steps: expect.arrayContaining([
           expect.objectContaining({ name: "updater-runtime-retention", exitCode: 0 }),
           expect.objectContaining({
             name: "post-update verification",
@@ -111,10 +112,31 @@ export function registerForegroundFailureRecoveryTests(deps: {
               { check: "update", code: "update-failed" },
             ],
           }),
+          expect.objectContaining({ name: "package-rollback", exitCode: 0 }),
+          expect.objectContaining({ name: "package-backup-retention", exitCode: 0 }),
           expect.objectContaining({ name: "gateway recovery observation", exitCode: 0 }),
-          ...(handoff === undefined ? [recoveryCleanupStep()] : []),
-        ],
+        ]),
       });
+      const steps = result?.steps ?? [];
+      expect(
+        steps
+          .filter((step) => step.name !== "post-update verification")
+          .every((step) => step.exitCode === 0),
+      ).toBe(true);
+      const orderedSteps = [
+        "updater-runtime-retention",
+        "post-update verification",
+        "package-rollback",
+        "package-backup-retention",
+        "gateway recovery observation",
+      ];
+      const indexes = orderedSteps.map((name) => steps.findIndex((step) => step.name === name));
+      expect(
+        indexes.every(
+          (index, position) =>
+            index >= 0 && (position === 0 || index > (indexes[position - 1] ?? -1)),
+        ),
+      ).toBe(true);
       expect(deps.updateNpmInstalledPlugins).not.toHaveBeenCalled();
     },
   );

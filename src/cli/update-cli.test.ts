@@ -60,7 +60,6 @@ describe("update-cli", () => {
     primeServiceCommand,
     profileStateDir,
     setupNpmUpdatedRootRefresh,
-    setupUpdatedRootRefresh,
   } = createUpdateCliFixture();
 
   const oweEarlier = (id: UpdateOwedStepId) => {
@@ -584,43 +583,14 @@ describe("update-cli", () => {
     await withEnvAsync({ OPENCLAW_GIT_DIR: tempDir }, async () => {
       setTty(true);
       mocks.select.mockResolvedValue("dev");
-      mocks.confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-      vi.mocked(gitUpdate).mockImplementation(async ({ opts: options }) => {
-        await writeOpenClawPackageFixture(tempDir, VERSION, {
-          git: true,
-          builtSha: sha,
-          databaseEngines,
-        });
-        await options.validateCandidate(tempDir);
-        await check.requireValue(
-          options.beforeGitMutation,
-          "Git mutation admission",
-        )({
-          databaseEngines,
-        });
-        return cli.makeOkUpdateResult({
-          root: tempDir,
+      mocks.confirm.mockResolvedValue(true);
+      cli.mockGitUpdateAfterMutation(
+        cli.makeOkUpdateResult({
           after: { sha, version: VERSION },
-        });
-      });
-      const runFixtureExec = check.requireValue(
-        vi.mocked(cli.runExec).getMockImplementation(),
-        "exec fixture",
+        }),
+        false,
+        { databaseEngines },
       );
-      vi.mocked(cli.runExec).mockImplementation((file, args, options) => {
-        if (
-          args.length === 3 &&
-          args[0] === path.join(tempDir, "dist", "entry.js") &&
-          args[1] === "update" &&
-          args[2] === "--help"
-        ) {
-          return Promise.resolve({
-            stdout: new Command("update").option("--accept-capabilities").helpInformation(),
-            stderr: "",
-          });
-        }
-        return runFixtureExec(file, args, options);
-      });
 
       const program = new Command();
       program.exitOverride();
@@ -630,21 +600,9 @@ describe("update-cli", () => {
       expect(cli.readConfigFileSnapshot).toHaveBeenCalledWith({ observe: false });
       const call = vi.mocked(gitUpdate).mock.calls[0]?.[0];
       expect(call?.opts.channel).toBe("dev");
-      // Directory-observation helpers can also spawn while the update runs.
-      const updateInvocations = mocks.spawn.mock.calls
-        .map(([, args]) => args)
-        .filter((args) => args[1] === "update");
-      expect(updateInvocations).toEqual([
-        [
-          path.join(tempDir, "dist", "entry.js"),
-          "update",
-          "--no-restart",
-          "--accept-capabilities",
-          "--timeout",
-          "1800",
-        ],
-      ]);
-      check.expectNoSideEffects(mocks.syncPluginsForUpdateChannel, mocks.updateNpmInstalledPlugins);
+      expect(check.syncPluginCall()).toMatchObject({
+        onCapabilityConsent: expect.any(Function),
+      });
       expect(runtime.exit).not.toHaveBeenCalledWith(1);
     });
   });
@@ -775,7 +733,7 @@ describe("update-cli", () => {
   });
 
   it("tries the updated install restart when package service refresh fails in JSON mode", async () => {
-    const { updatedRoot, updatedEntrypoint } = setupNpmUpdatedRootRefresh();
+    const { updatedRoot, updatedEntrypoint } = await setupNpmUpdatedRootRefresh();
     mocks.serviceLoaded.mockResolvedValue(true);
     primeServiceCommand([nodeExecutable, updatedEntrypoint, "gateway", "run"]);
     mockGatewayInstallFailure(updatedEntrypoint, "runtime warning");
@@ -798,46 +756,13 @@ describe("update-cli", () => {
     );
   });
 
-  it("warns without restarting a stale same-version service when installation reconciliation fails", async () => {
-    const oldRoot = createCaseDir("openclaw-old-root");
-    const updatedRoot = createCaseDir("openclaw-updated-root");
-    const oldEntrypoint = path.join(oldRoot, "dist", "entry.js");
-    const updatedEntrypoint = path.join(updatedRoot, "dist", "entry.js");
-    setupUpdatedRootRefresh({
-      entrypoints: [oldEntrypoint, updatedEntrypoint],
-      targetVersion: "2026.4.24",
-      gatewayUpdateImpl: async () =>
-        cli.makeOkUpdateResult({
-          mode: "npm",
-          root: updatedRoot,
-          before: { version: "2026.4.24" },
-          after: { version: "2026.4.24" },
-        }),
-    });
-    mocks.serviceLoaded.mockResolvedValue(true);
-    primeServiceCommand([nodeExecutable, oldEntrypoint, "gateway", "run"]);
-    mockGatewayInstallFailure(updatedEntrypoint);
-    mockGatewayHealth("2026.4.24", "matching-old-service");
-
-    await runUpdate({ yes: true });
-
-    expect(check.gatewayCommandCall(updatedEntrypoint, "install")?.[0]).toContain("--force");
-    expect(check.gatewayCommandCall(updatedEntrypoint, "restart")).toBeUndefined();
-    check.expectNoSideEffects(mocks.serviceStop, mocks.serviceStart, mocks.serviceRestart);
-    expect(restarts()).toHaveLength(0);
-    expect(check.getErrorOutput()).toContain(
-      `Failed to reconcile gateway service with ${updatedRoot}`,
-    );
-    expect(runtime.exit).not.toHaveBeenCalledWith(1);
-  });
-
   it.each([
     { plugins: "converge", convergenceFailure: undefined },
     { plugins: "fail to converge", convergenceFailure: "plugin registry exploded" },
   ])(
     "shows the matching-version probe failure when a JSON package update restart stays unhealthy and plugins $plugins",
     async ({ convergenceFailure }) => {
-      setupNpmUpdatedRootRefresh();
+      await setupNpmUpdatedRootRefresh();
       const earlier = oweEarlier("shell-completion");
       if (convergenceFailure) {
         mocks.syncPluginsForUpdateChannel.mockRejectedValueOnce(new Error(convergenceFailure));
@@ -888,7 +813,7 @@ describe("update-cli", () => {
     },
   );
   it("keeps a JSON package update whose plugin convergence fails and owes the step", async () => {
-    setupNpmUpdatedRootRefresh();
+    await setupNpmUpdatedRootRefresh();
     const reason = "plugin registry exploded";
     mocks.syncPluginsForUpdateChannel.mockRejectedValueOnce(new Error(reason));
 
@@ -957,6 +882,15 @@ describe("update-cli", () => {
       await runRestartFallbackScenario({ daemonInstall });
 
       check.expectNoSideEffects(cli.runDaemonInstall, cli.runDaemonRestart);
+      expect(cli.listUpdateRuns({ limit: 1 })[0]).toMatchObject({
+        status: "succeeded",
+        reason: null,
+      });
+      expect(runtime.exit).not.toHaveBeenCalled();
+      if (daemonInstall === "fail") {
+        expect(restarts()).toHaveLength(0);
+        expect(check.getErrorOutput()).toContain("openclaw gateway install --force");
+      }
       expect(readOwedUpdateSteps()).toEqual(
         daemonInstall === "fail"
           ? [

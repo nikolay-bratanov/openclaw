@@ -41,27 +41,16 @@ describe("update-cli", () => {
   });
 
   it("pins the compatibility host version to the downgraded target during current-process post-core plugin convergence (#87914)", async () => {
-    const downgradedRoot = f.createCaseDir("openclaw-downgraded-compat-root");
-    vi.mocked(update.resolveUpdateInstallKind).mockImplementation(async (root) =>
-      root === downgradedRoot ? "package" : "git",
-    );
-    f.setupUpdatedRootRefresh({
+    const { updatedRoot } = await f.setupNpmUpdatedRootRefresh({
+      beforeVersion: "2026.4.14",
       targetVersion: "2026.4.10",
-      gatewayUpdateImpl: async () =>
-        update.makeOkUpdateResult({
-          mode: "npm",
-          root: downgradedRoot,
-          before: { version: "2026.4.14" },
-          after: { version: "2026.4.10" },
-        }),
     });
-    mocks.readPackageVersion.mockImplementation(async (pkgRoot: string) =>
-      pkgRoot === downgradedRoot ? "2026.4.10" : "2026.4.14",
-    );
-    f.primeNpmChannelTag("latest", "2026.4.10");
 
     delete process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION;
-    f.mockCurrentProcessFreshDoctor({ postCoreResumeAttempt: false });
+    f.mockCurrentProcessFreshDoctor({
+      packageRoot: updatedRoot,
+      postCoreResumeAttempt: false,
+    });
     let hostVersionDuringPluginUpdate: string | undefined = "unset";
     mocks.updateNpmInstalledPlugins.mockImplementation(async () => {
       hostVersionDuringPluginUpdate = process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION;
@@ -144,7 +133,12 @@ describe("update-cli", () => {
   const f = createUpdateCliFixture({ databaseEngines: ["sqlite", "postgres"] });
 
   registerForegroundFailureRecoveryTests({
-    setupUpdatedRootRefresh: f.setupUpdatedRootRefresh,
+    setupUpdatedRootRefresh: async () => {
+      const { updatedRoot } = await f.setupNpmUpdatedRootRefresh({ targetVersion: VERSION });
+      mocks.serviceLoaded.mockResolvedValue(false);
+      mocks.serviceReadCommand.mockResolvedValue(null);
+      return { root: updatedRoot };
+    },
     spawn: mocks.spawn,
     updateCommand: update.updateCommand,
     defaultRuntime: update.defaultRuntime,

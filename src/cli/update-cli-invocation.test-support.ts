@@ -1,13 +1,18 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { Command } from "commander";
 import { expect, vi } from "vitest";
 import { PLUGIN_CAPABILITY_CONSENT_REQUIRED } from "../../packages/gateway-protocol/src/capability-consent-error-details.js";
 import { collectNestedErrorCandidates } from "../infra/error-graph-internal.js";
+import { gitReleaseSlot, resolveGitReleasePrefix } from "../infra/git-release-paths.js";
+import { readGitRuntimeArtifactIdentity } from "../infra/update-git-runtime.js";
 import type { UpdateRunRecord } from "../infra/update-run-record.js";
 import { updateGitRelease } from "../infra/update-runner-git-release.js";
 import type { UpdateRunResult } from "../infra/update-runner-types.js";
 import { ExitError } from "../runtime.js";
 import type { UpdateCommandOptions } from "./update-cli/shared.js";
+import { writeOpenClawPackageFixture } from "./update-cli/update-cli-package.test-support.js";
 
 const including = (object: Record<string, unknown>) =>
   expect.arrayContaining([expect.objectContaining(object)]);
@@ -176,16 +181,31 @@ export function createGitUpdateAfterMutationFixture(
   targetDeclaration: { databaseEngines?: string[] } = {},
 ) {
   const mutationAdmitted = vi.fn();
-  const run: typeof updateGitRelease = async ({ opts, gitRoot }) => {
+  const run: typeof updateGitRelease = async ({ opts }) => {
+    const prefix = resolveGitReleasePrefix();
+    const releases = path.join(prefix, "releases");
+    await fs.mkdir(releases, { recursive: true });
+    const releasePrefix = await fs.mkdtemp(path.join(releases, "fixture-"));
+    const releaseRoot = path.join(releasePrefix, "lib", "node_modules", "openclaw");
+    await writeOpenClawPackageFixture(releaseRoot, result.after?.version ?? "1.0.0", {
+      builtSha: result.after?.sha ?? "a".repeat(40),
+      entrySource: "export {};\n",
+      ...targetDeclaration,
+    });
+    const gitRuntime = await readGitRuntimeArtifactIdentity(releaseRoot);
     const target = { version: result.after?.version ?? undefined, ...targetDeclaration };
     await opts.inspectGitTarget(target);
-    await opts.validateCandidate(result.root ?? gitRoot);
+    await opts.validateCandidate(releaseRoot);
     await expectDefined(opts.beforeGitMutation, "Git mutation admission")(targetDeclaration);
     mutationAdmitted();
     if (reinspect) {
       await opts.inspectGitTarget(target);
     }
-    return result;
+    const root = gitReleaseSlot(prefix);
+    await fs.mkdir(path.dirname(root), { recursive: true });
+    await fs.rm(root, { force: true });
+    await fs.symlink(releaseRoot, root, "junction");
+    return { ...result, mode: "git", root, gitRuntime, sourceRuntimePrepared: true };
   };
   return { run, mutationAdmitted };
 }

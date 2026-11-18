@@ -18,10 +18,7 @@ import { createUpdateCliFixture } from "./update-cli-fixture.test-support.js";
 import * as mocks from "./update-cli-mocks.test-support.js";
 import * as cli from "./update-cli-modules.test-support.js";
 import { createChangedPostCoreUpdateOptions } from "./update-cli/update-cli-config.test-support.js";
-import {
-  writeGitUpdateResultFixture,
-  writeOpenClawPackageFixture,
-} from "./update-cli/update-cli-package.test-support.js";
+import { writeOpenClawPackageFixture } from "./update-cli/update-cli-package.test-support.js";
 
 await vi.hoisted(() => import("./update-cli-mocks.test-support.js"));
 
@@ -82,7 +79,11 @@ const continueFreshPostCore = () =>
   });
 
 it("keeps stopped owned-service config and plugin state through fresh post-core handoff", async () => {
-  const updatedEntrypoint = await f.setupManagedGitRootRefresh(true);
+  const { updatedRoot, updatedEntrypoint } = await f.setupNpmUpdatedRootRefresh({
+    beforeVersion: "2026.4.26",
+    targetVersion: VERSION,
+  });
+  f.mockCompletionCacheRefresh({ code: 0 });
   const managedState = profileState("work");
   const personalState = profileState("personal");
   const managedConfig = { ...f.baseConfig, update: { channel: "beta" as const } };
@@ -93,7 +94,7 @@ it("keeps stopped owned-service config and plugin state through fresh post-core 
     telegram: { source: "npm", spec: "@openclaw/telegram@beta" },
   } satisfies Record<string, PluginInstallRecord>;
   f.primeServiceCommand(
-    [nodeExecutable, path.join(process.cwd(), "dist", "index.js"), "gateway", "run"],
+    [nodeExecutable, path.join(updatedRoot, "dist", "index.js"), "gateway", "run"],
     {
       ...profileEnv("work", managedState, "19222"),
       OPENCLAW_SERVICE_MARKER: "openclaw",
@@ -153,19 +154,25 @@ it("keeps stopped owned-service config and plugin state through fresh post-core 
     env: { OPENCLAW_PROFILE: "personal" },
   });
   expect(mocks.serviceStop).toHaveBeenCalledOnce();
-  expect(checks.gatewayCommandCall(updatedEntrypoint, "install")).toBeDefined();
-  expect(checks.freshRestartCalls()).toHaveLength(1);
+  expect(
+    checks
+      .commandCalls()
+      .filter(
+        ([argv]) => argv[1] === updatedEntrypoint && argv[2] === "gateway" && argv[3] === "install",
+      ),
+  ).toHaveLength(1);
+  expect(checks.freshRestartCalls()).toHaveLength(0);
   expect(checks.getLogOutput()).toContain("Gateway: restarted and verified.");
   expect([handoffEnv.OPENCLAW_SERVICE_MARKER, handoffEnv[GATEWAY_SERVICE_RUNTIME_PID_ENV]]).toEqual(
     [undefined, undefined],
   );
   expect(handedConfig).toEqual({ sourceConfig: managedConfig, authoredConfig: managedConfig });
   expect(handedRecords).toEqual(managedRecords);
-  const restartIndex = checks
+  const activationIndex = checks
     .commandCalls()
-    .findIndex(([argv]) => argv[2] === "gateway" && argv[3] === "restart");
+    .findIndex(([argv]) => argv[2] === "gateway" && argv[3] === "install");
   expect(
-    vi.mocked(cli.runCommandWithTimeout).mock.invocationCallOrder[restartIndex],
+    vi.mocked(cli.runCommandWithTimeout).mock.invocationCallOrder[activationIndex],
   ).toBeGreaterThan(
     checks.requireValue(mocks.spawn.mock.invocationCallOrder[0], "post-core handoff"),
   );
@@ -173,21 +180,13 @@ it("keeps stopped owned-service config and plugin state through fresh post-core 
 
 it("keeps foreign-service updates in the caller profile", async () => {
   const personalState = profileState("personal");
-  const { root, entrypoints } = f.setupUpdatedRootRefresh();
+  await f.setupNpmUpdatedRootRefresh({ targetVersion: VERSION });
   const foreignRoot = f.tempDirs.make("openclaw-update-foreign-profile-");
   const foreignEntrypoint = await writeOpenClawPackageFixture(foreignRoot, "2026.4.21", {
+    git: true,
+    builtSha: "b".repeat(40),
     entrySource: "export {};\n",
   });
-  cli.mockGitUpdateAfterMutation(
-    await writeGitUpdateResultFixture({
-      root,
-      before: { sha: "old-caller-sha", version: "2026.4.26" },
-      after: { sha: "new-caller-sha", version: VERSION },
-      databaseEngines,
-    }),
-    false,
-    { databaseEngines },
-  );
   mocks.serviceReadCommand.mockResolvedValue({
     programArguments: [nodeExecutable, foreignEntrypoint, "gateway", "run"],
     environment: {
@@ -198,24 +197,25 @@ it("keeps foreign-service updates in the caller profile", async () => {
   });
   mocks.serviceLoaded.mockResolvedValue(true);
   mocks.serviceReadRuntime.mockResolvedValue({ status: "stopped", state: "stopped" });
-  mocks.pathExists.mockImplementation(
-    async (candidate: string) =>
-      entrypoints.includes(candidate) || candidate.endsWith("package.json"),
-  );
   profileState("work");
   const callerEnv = {
     OPENCLAW_PROFILE: "personal",
     OPENCLAW_STATE_DIR: personalState,
     OPENCLAW_GATEWAY_PORT: "19111",
   };
-  await withEnvAsync(callerEnv, () => cli.updateCommand({ yes: true }));
+  await withEnvAsync(callerEnv, () => cli.updateCommand({ yes: true })).catch((cause: unknown) => {
+    throw new Error(
+      `${checks.getLogOutput()}\n${checks.getErrorOutput()}\n${JSON.stringify(checks.lastWriteJsonCall())}`,
+      { cause },
+    );
+  });
 
   checks.expectNoSideEffects(mocks.serviceStop, mocks.serviceRestart);
   expect(checks.spawnCall()?.[2]?.env).toMatchObject(callerEnv);
 });
 
 it("never pipes JSON post-core output to stdout", async () => {
-  const { entrypoints } = f.setupUpdatedRootRefresh();
+  const { updatedEntrypoint } = await f.setupNpmUpdatedRootRefresh({ targetVersion: VERSION });
   const stdout = vi.fn();
   const stderr = vi.fn();
   mocks.spawn.mockImplementationOnce(() =>
@@ -224,7 +224,7 @@ it("never pipes JSON post-core output to stdout", async () => {
   await cli.updateCommand({ json: true, restart: false });
   const call = checks.spawnCall();
   expect(call?.[1]).toEqual([
-    entrypoints[0],
+    updatedEntrypoint,
     "update",
     "--json",
     "--no-restart",
@@ -434,7 +434,7 @@ it.each(["overlapping-reads", "close-before-read", "termination-error"] as const
   async (race) => {
     const overlapping = race === "overlapping-reads";
     if (overlapping) {
-      f.setupUpdatedRootRefresh();
+      await f.setupNpmUpdatedRootRefresh({ targetVersion: VERSION });
     } else {
       freshContinuation();
     }

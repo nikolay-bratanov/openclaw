@@ -1,4 +1,3 @@
-import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import { collectNestedErrorCandidates } from "../infra/error-graph-internal.js";
@@ -12,8 +11,10 @@ import { withEnvAsync } from "../test-utils/env.js";
 import { VERSION } from "../version.js";
 import { ExpectedCliError } from "./expected-cli-error.js";
 import {
+  commandCalls,
   expectNoSideEffects,
   freshRestartCalls,
+  gatewayCommandCall,
   getErrorOutput,
   getLogOutput,
   lastWriteJsonCall,
@@ -22,6 +23,7 @@ import {
 import { createUpdateCliFixture } from "./update-cli-fixture.test-support.js";
 import * as mocks from "./update-cli-mocks.test-support.js";
 import * as update from "./update-cli-modules.test-support.js";
+import * as progressOwner from "./update-cli/update-command-run.js";
 
 await vi.hoisted(() => import("./update-cli-mocks.test-support.js"));
 
@@ -224,55 +226,30 @@ describe("update-cli", () => {
         "preparePostUpdateService",
       );
       const ledgerReads = vi.spyOn(await import("../infra/update-run-ledger.js"), "getUpdateRun");
-      const inspectSchemas = expectDefined(
-        mocks.stateSchemaVersions.getMockImplementation(),
-        "schema inspection",
-      );
-      let observedActivation = false;
-      mocks.stateSchemaVersions.mockImplementation(async (options) => {
-        const versions = await inspectSchemas(options);
-        if (mocks.serviceStop.mock.calls.length > 0 && !observedActivation) {
-          // The real onActivation callback has run, but schema inspection has not
-          // yet authorized this process to reopen the candidate's ledger.
-          const progress = expectDefined(
-            vi.mocked(update.updateGitRelease).mock.calls[0]?.[0]?.opts.progress,
-            "update progress",
-          );
-          const readsBefore = ledgerReads.mock.calls.length;
-          await expectDefined(
-            progress.onStepComplete,
-            "step completion",
-          )({
-            name: "core migrations",
-            command: "doctor --fix",
-            index: 0,
-            total: 1,
-            durationMs: 1,
-            exitCode: 0,
-          });
-          expect(ledgerReads).toHaveBeenCalledTimes(readsBefore);
-          observedActivation = true;
-        }
-        return versions;
+      const { updatedEntrypoint } = await f.setupNpmUpdatedRootRefresh({
+        beforeVersion: "0.9.0",
+        targetVersion: VERSION,
       });
-      f.mockOwnedGitService();
-      update.mockGitUpdateAfterMutation(
-        update.makeOkUpdateResult({
-          root: process.cwd(),
-          before: { version: "0.9.0" },
-          after: { version: VERSION },
-        }),
-      );
-      // Candidate admission precedes the intentionally absent post-core handoff CLI.
-      vi.mocked(update.resolveGatewayInstallEntrypoint).mockResolvedValueOnce(
-        path.join(process.cwd(), "dist", "index.js"),
-      );
-      f.mockCurrentProcessFreshDoctor();
-      f.mockGatewayHealth(VERSION, "updated-gateway");
-      mocks.serviceLoaded.mockResolvedValue(true);
-      vi.mocked(update.resolveGatewayInstallEntrypoint).mockResolvedValue(
-        path.join(process.cwd(), "dist", "index.js"),
-      );
+      const createProgress = progressOwner.createUpdateRunProgress;
+      let observedActivation = false;
+      vi.spyOn(progressOwner, "createUpdateRunProgress").mockImplementation((...args) => {
+        const progress = createProgress(...args);
+        const completeStep = progress.onStepComplete;
+        progress.onStepComplete = async (step) => {
+          const readsBefore = ledgerReads.mock.calls.length;
+          await completeStep?.(step);
+          if (step.name === "openclaw doctor") {
+            // The real package Doctor completes after activation, before schema
+            // inspection authorizes reopening the candidate's ledger.
+            expect(progress.pendingSteps).toContainEqual(
+              expect.objectContaining({ step: "openclaw doctor", status: "completed" }),
+            );
+            expect(ledgerReads).toHaveBeenCalledTimes(readsBefore);
+            observedActivation = true;
+          }
+        };
+        return progress;
+      });
       const entered = createDeferredCore();
       const release = createDeferredCore();
       const unknown = new SqliteWorkerError("buffered receipt reply lost", "outcome-unknown");
@@ -304,7 +281,7 @@ describe("update-cli", () => {
       );
       const writeStep = stepWrites.recordUpdateRunStepAsync;
       vi.spyOn(stepWrites, "recordUpdateRunStepAsync").mockImplementation(async (...args) => {
-        if (args[1].step !== "core migrations" || args[1].status !== "completed") {
+        if (args[1].step !== "openclaw doctor" || args[1].status !== "completed") {
           return writeStep(...args);
         }
         receiptCalls++;
@@ -337,6 +314,7 @@ describe("update-cli", () => {
         expect(observedActivation).toBe(true);
         expect(receiptCalls).toBe(1);
         expect(prepareService).not.toHaveBeenCalled();
+        expect(gatewayCommandCall(updatedEntrypoint, "install")).toBeUndefined();
         expect(freshRestartCalls()).toHaveLength(0);
         expect(update.runDaemonRestart).not.toHaveBeenCalled();
         const runId = expectDefined(receiptRunId, "buffered receipt run");
@@ -344,7 +322,7 @@ describe("update-cli", () => {
         expect(update.getUpdateRun(runId)).toMatchObject({
           status: "running",
           steps: expect.arrayContaining([
-            expect.objectContaining({ step: "core migrations", status: "completed" }),
+            expect.objectContaining({ step: "openclaw doctor", status: "completed" }),
           ]),
         });
         release.resolve();
@@ -358,6 +336,7 @@ describe("update-cli", () => {
           expect(hasCommandProcessCleanupError(receiptError)).toBe(true);
           expect(collectNestedErrorCandidates(receiptError)).toContain(unknown);
           expect(prepareService).not.toHaveBeenCalled();
+          expect(gatewayCommandCall(updatedEntrypoint, "install")).toBeUndefined();
           expect(freshRestartCalls()).toHaveLength(0);
           expect(update.runDaemonRestart).not.toHaveBeenCalled();
           expect(mocks.serviceRestart).not.toHaveBeenCalled();
@@ -365,7 +344,7 @@ describe("update-cli", () => {
           const failed = expectDefined(update.getUpdateRun(runId), "uncertain receipt history");
           expect(failed.status).not.toBe("succeeded");
           expect(failed.steps).toContainEqual(
-            expect.objectContaining({ step: "core migrations", status: "completed" }),
+            expect.objectContaining({ step: "openclaw doctor", status: "completed" }),
           );
           expect(update.defaultRuntime.writeJson).not.toHaveBeenCalledWith(
             expect.objectContaining({ status: "ok" }),
@@ -379,7 +358,15 @@ describe("update-cli", () => {
         }
         expect(observedActivation).toBe(true);
         expect(prepareService).toHaveBeenCalledOnce();
-        expect(freshRestartCalls()).toHaveLength(1);
+        expect(
+          commandCalls().filter(([argv]) => argv[2] === "gateway" && argv[3] === "install"),
+        ).toEqual([
+          expectDefined(
+            gatewayCommandCall(updatedEntrypoint, "install"),
+            "updated Gateway install",
+          ),
+        ]);
+        expect(freshRestartCalls()).toHaveLength(0);
         expect(update.runDaemonRestart).not.toHaveBeenCalled();
         const run = expectDefined(update.listUpdateRuns({ limit: 1 })[0], "admitted update run");
         expect(mocks.serviceStop, getErrorOutput()).toHaveBeenCalledOnce();

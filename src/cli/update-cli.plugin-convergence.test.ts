@@ -44,6 +44,7 @@ describe("update-cli", () => {
     mockPackageInstallAtCaseDir,
     primeNpmChannelTag,
     runPostCoreCommand,
+    setupNpmUpdatedRootRefresh,
     clawHubSuspiciousPayloadWarning,
     clawHubSyncRiskError,
   } = createUpdateCliFixture();
@@ -208,6 +209,7 @@ describe("update-cli", () => {
   });
 
   it("keeps json update output successful when post-core plugin updates warn", async () => {
+    await setupNpmUpdatedRootRefresh({ beforeVersion: "1.0.0" });
     const drift = {
       pluginId: "demo",
       spec: "@openclaw/demo@1.0.0",
@@ -262,6 +264,7 @@ describe("update-cli", () => {
   it.each(["sync", "update"] as const)(
     "prints ClawHub %s trust warnings once in human output",
     async (source) => {
+      await setupNpmUpdatedRootRefresh({ beforeVersion: "1.0.0" });
       const trustWarning = clawHubSuspiciousPayloadWarning;
       if (source === "sync") {
         mocks.syncPluginsForUpdateChannel.mockImplementationOnce(
@@ -319,8 +322,9 @@ describe("update-cli", () => {
   ])(
     "reports unavailable retained plugin targets without failing core ($json, repaired=$repaired)",
     async ({ json, repaired }) => {
+      await setupNpmUpdatedRootRefresh({ beforeVersion: "1.0.0" });
       const message =
-        'Retained plugin "demo" at 1.0.0: requested @example/demo@2.0.0 for core 9999.0.0 could not be resolved: No matching version found. Run `openclaw plugins update demo` when the package or registry is available.';
+        'Retained plugin "demo" at 1.0.0: requested @example/demo@2.0.0 for core 2026.4.24 could not be resolved: No matching version found. Run `openclaw plugins update demo` when the package or registry is available.';
       const installPath = createCaseDir("unavailable-target");
       await fs.mkdir(installPath, { recursive: true });
       await writeJsonFixture(path.join(installPath, "package.json"), {
@@ -389,6 +393,7 @@ describe("update-cli", () => {
   );
 
   it("reports actionable ClawHub blocked plugin updates", async () => {
+    await setupNpmUpdatedRootRefresh({ beforeVersion: "1.0.0" });
     const trustWarning =
       "╭─ BLOCKED - ClawHub flagged this release as malicious ─╮\n" +
       "│ • Security scan: malicious                           │\n" +

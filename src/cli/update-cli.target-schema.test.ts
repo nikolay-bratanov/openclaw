@@ -220,7 +220,9 @@ describe("update-cli", () => {
       );
       expect(packageInstall()).toBeUndefined();
       if (kind === "package-to-git") {
-        expect(destinationVisibleAtAdmission).toBe(false);
+        // The first release is a worktree of the clone, so the clone exists while the target is
+        // admitted; a refused switch removes it.
+        expect(destinationVisibleAtAdmission).toBe(true);
         expect(fsSync.existsSync(destination)).toBe(false);
       }
     },
@@ -229,7 +231,6 @@ describe("update-cli", () => {
   it.each([
     "package metadata",
     "package runtime",
-    "npm policy",
     "clone failure",
     "non-git directory",
     "git metadata",
@@ -240,9 +241,6 @@ describe("update-cli", () => {
     const packageTarget = failure.startsWith("package ");
     mockFileBackedPathExists();
     mockNpmGlobalCommands(nodeModules, async (argv) => {
-      if (failure === "npm policy" && argv[0] === "npm" && argv[1] === "--version") {
-        return commandResult({ stdout: "unrecognized npm version\n" });
-      }
       if (failure === "clone failure" && argv[0] === "git" && argv[1] === "clone") {
         return commandResult({ code: 128, stderr: "clone unavailable" });
       }
@@ -552,7 +550,7 @@ describe("update-cli", () => {
       },
       options: { yes: true, json: true },
       beforeUpdate: async () => {
-        setupNpmUpdatedRootRefresh();
+        await setupNpmUpdatedRootRefresh();
         mocks.serviceLoaded.mockResolvedValue(true);
         mockGatewayHealth("2026.4.23", "old-gateway");
         const respond = expectDefined(mocks.callGateway.getMockImplementation(), "health response");
@@ -564,20 +562,39 @@ describe("update-cli", () => {
           }
           return respond(opts);
         });
+        const consumeSentinel = expectDefined(
+          mocks.callGateway.getMockImplementation(),
+          "sentinel-consuming health response",
+        );
+        const runFixtureCommand = expectDefined(
+          vi.mocked(runCommand).getMockImplementation(),
+          "package command fixture",
+        );
+        vi.mocked(runCommand).mockImplementation(async (argv, options) => {
+          const result = await runFixtureCommand(argv, options);
+          if (
+            result.code === 0 &&
+            argv[2] === "gateway" &&
+            ["install", "restart"].includes(argv[3] ?? "")
+          ) {
+            mocks.callGateway.mockImplementation(consumeSentinel);
+          }
+          return result;
+        });
       },
     });
     expect(sentinelConsumed).toBe(true);
     expect(sentinel).toBeNull();
     expect(check.lastWriteJsonCall()).toMatchObject({
       status: "error",
+      mode: "npm",
       reason: "version-mismatch",
     });
     expect(runtime.exit).not.toHaveBeenCalled();
   });
 
   it("keeps a core update successful when a plugin cannot load", async () => {
-    const { updatedEntrypoint } = setupNpmUpdatedRootRefresh();
-    mocks.readPackageVersion.mockResolvedValue("2026.4.24");
+    const { updatedEntrypoint } = await setupNpmUpdatedRootRefresh();
     mocks.serviceLoaded.mockResolvedValue(true);
     mockGatewayHealth("2026.4.23", "previous-gateway");
     const activateGateway = mockPackageGatewayLifecycle();
@@ -620,6 +637,7 @@ describe("update-cli", () => {
 
     await runUpdate({ yes: true, json: false });
 
+    expect(packageInstall()).toBeDefined();
     expect(check.gatewayCommandCall(updatedEntrypoint, "install")).toBeDefined();
     expect(restarts()).toHaveLength(0);
     expect(check.gatewayHealthCall()).toMatchObject({
@@ -739,37 +757,48 @@ describe("update-cli", () => {
     expect(cli.runDaemonInstall).not.toHaveBeenCalled();
   });
 
-  it("keeps the update flag through mutation and restores it after restart", async () => {
+  it("keeps the update flag through mutation and restores it after Gateway activation", async () => {
     await withEnvAsync({ OPENCLAW_UPDATE_IN_PROGRESS: undefined }, async () => {
-      const entrypoint = path.join(process.cwd(), "dist", "index.js");
-      vi.mocked(cli.resolveGatewayInstallEntrypoint).mockResolvedValue(entrypoint);
-      mockRunningManagedGateway([nodeExecutable, entrypoint, "gateway"]);
-      cli.mockGitUpdateAfterMutation(cli.makeOkUpdateResult({ root: process.cwd() }));
-      const update = check.requireValue(
-        vi.mocked(gitUpdate).getMockImplementation(),
-        "Git update fixture",
+      const { updatedRoot, updatedEntrypoint } = await setupNpmUpdatedRootRefresh();
+      mockRunningManagedGateway([nodeExecutable, updatedEntrypoint, "gateway"]);
+      const runFixtureCommand = check.requireValue(
+        vi.mocked(runCommand).getMockImplementation(),
+        "package command fixture",
       );
-      vi.mocked(gitUpdate).mockImplementationOnce(async (...args) => {
-        expect(process.env.OPENCLAW_UPDATE_IN_PROGRESS).toBe("1");
-        return update(...args);
+      vi.mocked(runCommand).mockImplementation(async (argv, options) => {
+        const mutatingPackage = argv[0] === "npm" && argv[1] === "i";
+        const activatingGateway =
+          argv[2] === "gateway" && ["install", "restart"].includes(argv[3] ?? "");
+        if (mutatingPackage || activatingGateway) {
+          expect(process.env.OPENCLAW_UPDATE_IN_PROGRESS).toBe("1");
+        }
+        const result = await runFixtureCommand(argv, options);
+        if (mutatingPackage || activatingGateway) {
+          expect(process.env.OPENCLAW_UPDATE_IN_PROGRESS).toBe("1");
+        }
+        return result;
       });
       vi.mocked(runtime.log).mockClear();
 
       await runUpdate({});
 
+      expect(packageInstall()).toBeDefined();
+      expect(
+        JSON.parse(await fs.readFile(path.join(updatedRoot, "package.json"), "utf8")),
+      ).toMatchObject({ version: "2026.4.24" });
       expect(cli.doctorCommand).not.toHaveBeenCalled();
       expect(process.env.OPENCLAW_UPDATE_IN_PROGRESS).toBeUndefined();
-      const restartIndex = vi
+      const activationIndex = vi
         .mocked(runCommand)
-        .mock.calls.findIndex(([argv]) => argv[2] === "gateway" && argv[3] === "restart");
-      const restartOrder = check.requireValue(
-        vi.mocked(runCommand).mock.invocationCallOrder[restartIndex],
-        "installed CLI restart call order",
+        .mock.calls.findIndex(([argv]) => argv[2] === "gateway" && argv[3] === "install");
+      const activationOrder = check.requireValue(
+        vi.mocked(runCommand).mock.invocationCallOrder[activationIndex],
+        "installed CLI activation call order",
       );
       const snapshotOrders = mocks.createPreUpdateConfigSnapshotMock.mock.invocationCallOrder;
       expect(mocks.createPreUpdateConfigSnapshotMock).toHaveBeenCalledTimes(1);
-      expect(check.requireValue(snapshotOrders[0], "restart snapshot call order")).toBeLessThan(
-        restartOrder,
+      expect(check.requireValue(snapshotOrders[0], "activation snapshot call order")).toBeLessThan(
+        activationOrder,
       );
 
       const successIndex = vi
@@ -777,7 +806,7 @@ describe("update-cli", () => {
         .mock.calls.findIndex((call) => String(call[0]).includes("OpenClaw updated"));
       expect(successIndex).toBeGreaterThanOrEqual(0);
       expect(vi.mocked(runtime.log).mock.invocationCallOrder[successIndex]).toBeGreaterThan(
-        restartOrder,
+        activationOrder,
       );
     });
   });
