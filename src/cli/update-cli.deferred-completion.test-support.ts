@@ -53,6 +53,7 @@ vi.mock("../runtime.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../runtime.js")>()),
   defaultRuntime: runtimeCapture,
 }));
+// mock-isolation: the real runner builds Git worktrees; this suite owns deferred completion only.
 vi.mock("../infra/update-runner-git-release.js", () => ({
   updateGitRelease: vi.fn(),
 }));

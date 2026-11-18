@@ -65,13 +65,12 @@ export async function runWindowsGatewayTaskSupervisor(): Promise<void> {
       if (childArgs.length === 0) {
         throw new Error("Windows task supervisor could not resolve the Gateway command");
       }
+      // A Git release install starts each child through its launcher, which counts trial
+      // starts and matches the installed task command.
+      const launcher: unknown = Reflect.get(globalThis, Symbol.for("openclaw.gitReleaseLauncher"));
       const invocation = resolveOpenClawCliInvocation({
         args: [...childArgs, formatWindowsTaskSupervisorChildArgument(restartExitCode)],
-        // A Git release install starts each child through its launcher, which counts trial
-        // starts and matches the installed task command.
-        entryPath: (globalThis as Record<symbol, string | undefined>)[
-          Symbol.for("openclaw.gitReleaseLauncher")
-        ],
+        entryPath: typeof launcher === "string" ? launcher : undefined,
       });
       const command = [invocation.command, ...invocation.args]
         .map((argument) => quoteCmdScriptArg(argument))

@@ -196,6 +196,7 @@ export async function requestGitReleaseRollback(
     // The startup upgrade preserves files after the switch that selected this release.
     createdAt: link.ctimeMs,
     attempts: 2,
+    requested: true,
   });
 }
 

@@ -421,6 +421,8 @@ describe.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
 
       expect(start.status).toBe(0);
       expect(start.stdout).toContain("old");
+      expect(start.stderr).toContain("rolled back from release");
+      expect(start.stderr).not.toContain("failed to start twice");
       expect(await fs.readFile(db, "utf8")).toBe("old schema");
       expect(readPackageReleaseSlotSync(gitReleaseSlot(prefix))?.target).toBe(rollback!.previous);
     });

@@ -17,6 +17,8 @@ export type GitReleaseTrial = {
   config?: string;
   /** Selected by the next service start instead of now (`--no-restart`), without a fallback. */
   pending?: boolean;
+  /** Written by `openclaw update rollback`: the release did not fail, the operator asked. */
+  requested?: boolean;
   /** Written by the launcher before it restores anything: what the rollback restores. */
   restoring?: Array<{ suffix: string; files: string[] }>;
 };
@@ -196,7 +198,11 @@ if (trial && counts) {
     }
     switchLink(trial.previous);
     fs.rmSync(trialFile, { force: true });
-    console.error("openclaw: release " + trial.target + " failed to start twice; switched back to " + trial.previous);
+    console.error(
+      trial.requested
+        ? "openclaw: rolled back from release " + trial.target + " to " + trial.previous
+        : "openclaw: release " + trial.target + " failed to start twice; switched back to " + trial.previous,
+    );
   } else {
     writeTrial({ ...trial, attempts: trial.attempts + 1 });
   }
