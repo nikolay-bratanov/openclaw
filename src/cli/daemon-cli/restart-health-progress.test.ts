@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gatewayHealthResponse } from "../../gateway/health-response.test-support.js";
 import {
@@ -410,6 +413,46 @@ describe("restart startup progress", () => {
         waitOutcome: listenerPid === 8000 ? "timeout" : "still-starting",
         elapsedMs,
       });
+    },
+  );
+
+  it.each([
+    { name: "renewing", owner: "service", expected: "still-starting", elapsedMs: 300_000 },
+    { name: "another process's", owner: "other", expected: "still-starting", elapsedMs: 60_000 },
+  ])(
+    "waits on a $name copy-and-swap state upgrade at Gateway start",
+    async ({ owner, expected, elapsedMs }) => {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "restart-state-upgrade-"));
+      try {
+        // The upgrade runs before the listener exists, in the service's own process.
+        const pid = owner === "service" ? process.pid : 999_999;
+        const workDir = path.join(stateDir, `.upgrade-2026.11.5-${pid}-1`);
+        fs.mkdirSync(workDir);
+        const service = makeGatewayService({ status: "running", pid: process.pid });
+        vi.mocked(service.readRuntime).mockImplementation(async () => {
+          // The upgrade touches its work directory every 60s while it copies and runs Doctor.
+          const beat = 1_000_000 + Math.floor(monotonicClock.nowMs / 60_000) * 60;
+          fs.utimesSync(workDir, beat, beat);
+          return { status: "running", pid: process.pid };
+        });
+        inspectPortUsage.mockImplementation(async (port) => ({
+          port,
+          status: "free",
+          listeners: [],
+          hints: [],
+        }));
+
+        const health = await waitForGatewayHealthyRestart({
+          service,
+          port: 18789,
+          requireOwnedListener: true,
+          env: { OPENCLAW_STATE_DIR: stateDir },
+        });
+
+        expect(health).toMatchObject({ healthy: false, waitOutcome: expected, elapsedMs });
+      } finally {
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
     },
   );
 });

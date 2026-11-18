@@ -117,6 +117,12 @@ keeps running; check `openclaw gateway status --deep` again before restarting it
 A crashed service or a foreign listener still produces a failure. Port ownership
 alone does not prove readiness or rule out warm-up.
 
+A Gateway that upgrades older state at startup does not listen until the
+upgrade finishes. Start and restart keep waiting while that upgrade makes
+progress, up to five minutes in total, and report the `startup migration` phase.
+An upgrade that runs longer reports `still-starting`; the Gateway keeps running
+and finishes on its own.
+
 ### Linux maintenance holds
 
 On Linux, `openclaw gateway stop` asks systemd to stop the unit. An explicit stop

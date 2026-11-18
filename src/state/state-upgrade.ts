@@ -23,6 +23,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveUserPath } from "../infra/home-dir.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { readSqliteUserVersion } from "../infra/sqlite-user-version.js";
+import { STARTUP_MIGRATION_HEARTBEAT_INTERVAL_MS } from "../infra/startup-migration-checkpoint.js";
 import { getMediaDir } from "../media/store-path.js";
 import { resolveRuntimeServiceBuildId, VERSION } from "../version.js";
 import { readRetainedAgentDeletionIds } from "./agent-deletion-journal.snapshot.worker.js";
@@ -38,6 +39,7 @@ import {
   type SetAsideRow,
   type SqliteSwapReport,
 } from "./sqlite-copy-swap.js";
+import { STATE_UPGRADE_WORK_PREFIX as WORK_PREFIX } from "./state-upgrade-activity.js";
 import { createDoctorChain, type StateUpgradeChain } from "./state-upgrade-doctor.js";
 import {
   applyPlan,
@@ -68,7 +70,6 @@ import {
 
 const UPGRADE_REPORT_SCOPE = "upgrade.report";
 const UPGRADE_PIN_SCOPE = "upgrade.pin";
-const WORK_PREFIX = ".upgrade-";
 // Previous files are kept as `<name>.pre-<generation>`, named after the build that replaced
 // them: commits of one version can each upgrade, and a failed Git release trial restores
 // exactly what its build replaced. A build without a build ID names them by version, as
@@ -440,8 +441,20 @@ export async function upgradeStateDirectory(params: {
   const runChain = params.runChain ?? createDoctorChain();
   const chainLog = path.join(workDir, "chain.log");
   let planWritten = false;
+  let heartbeat: NodeJS.Timeout | undefined;
   try {
     fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
+    // Restart health reads the work directory's mtime as this upgrade's heartbeat
+    // (readStateUpgradeActivity), so a long copy or Doctor run is not a stalled start.
+    heartbeat = setInterval(() => {
+      const now = new Date();
+      try {
+        fs.utimesSync(workDir, now, now);
+      } catch {
+        // The swap removes the work directory; a missed beat only shortens the wait.
+      }
+    }, STARTUP_MIGRATION_HEARTBEAT_INTERVAL_MS);
+    heartbeat.unref();
     params.log.info(
       `Upgrading state to ${VERSION}: ${outdated.map((t) => `${path.relative(stateDir, t.path)} v${t.version}`).join(", ")}`,
     );
@@ -689,6 +702,8 @@ export async function upgradeStateDirectory(params: {
       throw explainMachineFailure(error, stateDir);
     }
     throw error;
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
