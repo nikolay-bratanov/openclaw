@@ -416,6 +416,37 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "docs.openclaw.ai/cli/up
       ),
     );
 
+  update
+    .command("rollback")
+    .description("Switch back to the previous release and restore the state it upgraded")
+    .option("--dry-run", "Show the release rollback would select", false)
+    .option("--json", "Output result as JSON", false)
+    .option("--no-restart", "Leave the switch to the next Gateway start")
+    .action(
+      createUpdateLeafAction(
+        async (opts, command) => {
+          for (const key of ["channel", "tag", "timeout", "acceptCapabilities", "yes"]) {
+            const source = update.getOptionValueSource(key);
+            if (source && source !== "default") {
+              throw new Error(
+                `The parent option ${key} is not supported for openclaw update rollback.`,
+              );
+            }
+          }
+          const { updateRollbackCommand } = await import("./update-cli/rollback.js");
+          await updateRollbackCommand({
+            dryRun:
+              Boolean(opts.dryRun) || Boolean(inheritOptionFromParent<boolean>(command, "dryRun")),
+            json: Boolean(opts.json) || inheritedUpdateJson(command),
+            restart:
+              opts.restart !== false &&
+              inheritOptionFromParent<boolean>(command, "restart") !== false,
+          });
+        },
+        { supportsDryRun: true },
+      ),
+    );
+
   registerUpdateFinalizationCommand(update, "repair", false);
   registerUpdateFinalizationCommand(update, "finalize", true);
 

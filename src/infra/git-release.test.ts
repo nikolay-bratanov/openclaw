@@ -14,7 +14,13 @@ import {
   resolveGitReleaseLauncherForEntrypoint,
   prepareGitReleaseLayout,
 } from "./git-release-paths.js";
-import { createGitReleaseDirs, publishGitRelease, settleGitReleaseTrial } from "./git-release.js";
+import {
+  createGitReleaseDirs,
+  planGitReleaseRollback,
+  publishGitRelease,
+  requestGitReleaseRollback,
+  settleGitReleaseTrial,
+} from "./git-release.js";
 import { readPackageReleaseSlotSync } from "./package-release-slot-path.js";
 
 const roots: string[] = [];
@@ -366,6 +372,77 @@ describe.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
       await settleGitReleaseTrial(gitReleaseSlot(prefix));
 
       await expect(fs.access(trial)).rejects.toThrow();
+    });
+
+    // Release ids carry Date.now(); advance only the Date so each release sorts after the last.
+    const releaseClock = () => {
+      vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
+      return () => vi.setSystemTime(Date.now() + 1_000);
+    };
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("rolls a settled release back to the one before it and restores its upgraded state", async () => {
+      const real = await setup();
+      // A state directory reached through a symlink, as /tmp on macOS: the link the
+      // rollback records must still resolve from the real prefix.
+      const alias = path.join(
+        await fs.mkdtemp(path.join(os.tmpdir(), "git-release-alias-")),
+        "state",
+      );
+      roots.push(path.dirname(alias));
+      await fs.symlink(real.stateDir, alias);
+      const stateDir = alias;
+      const prefix = path.join(alias, "git-install");
+      const tick = releaseClock();
+      const released = async (version: string, entry: string) => {
+        tick();
+        return await release(prefix, version, entry);
+      };
+      const old = await released("1.0.0", 'console.log("old");\n');
+      await publishGitRelease({ prefix, releaseRoot: old, trial: true });
+      const current = await released("2.0.0", 'console.log("new");\n');
+      await publishGitRelease({ prefix, releaseRoot: current, trial: true });
+      // Its first start upgraded state by copy and swap, then reported ready.
+      const db = path.join(stateDir, "state", "openclaw.sqlite");
+      await fs.mkdir(path.dirname(db), { recursive: true });
+      await fs.writeFile(`${db}.pre-2.0.0`, "old schema");
+      await fs.writeFile(db, "new schema");
+      expect(startGateway(prefix).stdout).toContain("new");
+      await settleGitReleaseTrial(gitReleaseSlot(prefix));
+      // A later release whose trial failed and was switched back is not a rollback target.
+      await released("3.0.0", 'throw new Error("boot");\n');
+
+      const rollback = await planGitReleaseRollback(prefix);
+      expect(rollback).toMatchObject({ version: "2.0.0", previousVersion: "1.0.0" });
+      await requestGitReleaseRollback(prefix, rollback!);
+      const start = startGateway(prefix);
+
+      expect(start.status).toBe(0);
+      expect(start.stdout).toContain("old");
+      expect(await fs.readFile(db, "utf8")).toBe("old schema");
+      expect(readPackageReleaseSlotSync(gitReleaseSlot(prefix))?.target).toBe(rollback!.previous);
+    });
+
+    it("refuses a rollback while an update is still on trial", async () => {
+      const { prefix } = await setup();
+      const tick = releaseClock();
+      await publishGitRelease({
+        prefix,
+        releaseRoot: await release(prefix, "1.0.0", ""),
+        trial: true,
+      });
+      tick();
+      await publishGitRelease({
+        prefix,
+        releaseRoot: await release(prefix, "2.0.0", ""),
+        trial: true,
+      });
+
+      const rollback = await planGitReleaseRollback(prefix);
+
+      await expect(requestGitReleaseRollback(prefix, rollback!)).rejects.toThrow("still on trial");
     });
 
     it("maps a release entry to its launcher and back", async () => {

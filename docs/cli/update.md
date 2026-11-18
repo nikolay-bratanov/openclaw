@@ -158,6 +158,7 @@ openclaw update
 openclaw update status
 openclaw update repair
 openclaw update cleanup --dry-run
+openclaw update rollback --dry-run
 openclaw update wizard
 openclaw update --channel extended-stable
 openclaw update --channel beta
@@ -957,6 +958,34 @@ mutation restores it before exit, while retaining checks on the original update
 owner and task identity. This protection belongs to the installed updater;
 installing a release with the fix enables it for the next update that release
 performs.
+
+## Roll back a release
+
+```bash
+openclaw update rollback --dry-run
+openclaw update rollback
+openclaw update rollback --no-restart
+```
+
+On an install that runs from releases (a Git install), `openclaw update rollback`
+switches back to the release created before the current one and restarts the
+Gateway. At that start, the release launcher renames the state files the
+current release's startup upgrade replaced (`<file>.pre-<version>`) back into
+place, then starts the earlier release. Changes the Gateway made after the
+update are lost.
+
+- `--dry-run` names the release it would select and changes nothing.
+- `--no-restart` leaves the switch to the next Gateway start.
+- While an update is still on trial, rollback refuses: start the Gateway once
+  so the trial settles.
+- If the Gateway does not restart through its release launcher, rollback says
+  so; stop the Gateway and start it again to finish.
+- If the earlier release cannot read the current state, because its
+  `.pre-<version>` files were already removed, it refuses to start. Run
+  `openclaw update` to move forward again.
+
+npm, pnpm, and Bun installs do not keep earlier releases. Reinstall the earlier
+version with the package manager, and see [Downgrade](/install/updating/rollback-and-recovery#downgrade).
 
 ## Options
 
